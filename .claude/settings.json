@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Bash(uvicorn *)",
+      "Bash(git *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(touch *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(rm *)",
+      "Bash(echo *)",
+      "Bash(chmod *)",
+      "Bash(which *)",
+      "Bash(brew *)",
+      "Bash(curl *)",
+      "Bash(open *)"
+    ]
+  }
+}
