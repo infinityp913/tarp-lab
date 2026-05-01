@@ -1,0 +1,227 @@
+import { useCallback, useEffect, useState } from 'react'
+import {
+  DndContext, DragEndEvent, DragOverlay, DragStartEvent,
+  PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import { fetchJobs, updateStage } from '../api/pgram'
+import type { PgramJob } from '../types'
+import { PGRAM_STAGES, TRENCHES } from '../types'
+import { KanbanColumn } from './KanbanColumn'
+import { JobCard } from './JobCard'
+import { JobDetailModal } from './JobDetailModal'
+import { CreateJobModal } from './CreateJobModal'
+import { ConfirmationModal } from './ConfirmationModal'
+import { toast } from './Toast'
+
+const STAGE_COLORS: Record<string, string> = {
+  to_be_processed: '#94a3b8',
+  to_be_aligned: '#f59e0b',
+  to_overnight: '#8b5cf6',
+  processed: '#22c55e',
+  uploaded_air: '#0ea5e9',
+}
+
+export function PgramTab() {
+  const [jobs, setJobs] = useState<PgramJob[]>([])
+  const [loading, setLoading] = useState(true)
+  const [trenchFilter, setTrenchFilter] = useState('All Trenches')
+  const [detailJob, setDetailJob] = useState<PgramJob | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [draggingJob, setDraggingJob] = useState<PgramJob | null>(null)
+  const [confirmState, setConfirmState] = useState<{
+    message: string; jobId: string; targetStage: string
+  } | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  )
+
+  const load = useCallback(async () => {
+    try {
+      const data = await fetchJobs()
+      setJobs(data)
+    } catch {
+      toast('Failed to load jobs', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const filtered = trenchFilter === 'All Trenches'
+    ? jobs
+    : jobs.filter((j) => j.trench === trenchFilter)
+
+  const byStage = (stageKey: string) =>
+    filtered.filter((j) => j.stage === stageKey)
+
+  function handleDragStart(event: DragStartEvent) {
+    const job = jobs.find((j) => j.job_id === event.active.id)
+    if (job) setDraggingJob(job)
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setDraggingJob(null)
+    const { active, over } = event
+    if (!over) return
+
+    const jobId = String(active.id)
+    const overId = String(over.id)
+
+    // over.id may be a column key OR a card's job_id (when dropped on top of a card).
+    // Resolve to the column key in the latter case.
+    const stageKeys = new Set(PGRAM_STAGES.map((s) => s.key))
+    const targetStage = stageKeys.has(overId)
+      ? overId
+      : jobs.find((j) => j.job_id === overId)?.stage ?? overId
+
+    const job = jobs.find((j) => j.job_id === jobId)
+    if (!job || job.stage === targetStage) return
+
+    const result = await updateStage(jobId, targetStage, false)
+
+    if (result.requires_confirmation && result.message) {
+      setConfirmState({ message: result.message, jobId, targetStage })
+      return
+    }
+    if (result.error) {
+      toast(result.error, 'error')
+      return
+    }
+    if (result.job) {
+      setJobs((prev) => prev.map((j) => j.job_id === jobId ? result.job! : j))
+    }
+  }
+
+  async function handleConfirm() {
+    if (!confirmState) return
+    const { jobId, targetStage } = confirmState
+    setConfirmState(null)
+    const result = await updateStage(jobId, targetStage, true)
+    if (result.error) {
+      toast(result.error, 'error')
+      return
+    }
+    if (result.job) {
+      setJobs((prev) => prev.map((j) => j.job_id === jobId ? result.job! : j))
+      toast('Stage updated', 'success')
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <select
+          value={trenchFilter}
+          onChange={(e) => setTrenchFilter(e.target.value)}
+          style={selectStyle}
+        >
+          <option>All Trenches</option>
+          {TRENCHES.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        {trenchFilter !== 'All Trenches' && (
+          <span style={filterChip}>
+            {trenchFilter}
+            <button onClick={() => setTrenchFilter('All Trenches')} style={chipClear} title="Clear filter">✕</button>
+          </span>
+        )}
+        <span style={{ fontSize: 13, color: '#6b7280' }}>
+          {filtered.length} job{filtered.length !== 1 ? 's' : ''}
+          {trenchFilter !== 'All Trenches' && ` of ${jobs.length}`}
+        </span>
+        <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
+        <button onClick={() => setShowCreate(true)} style={addBtn}>+ New Job</button>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading jobs…</div>
+      ) : (
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
+            {PGRAM_STAGES.map(({ key, label }) => (
+              <KanbanColumn
+                key={key}
+                id={key}
+                title={label}
+                items={byStage(key)}
+                getId={(j) => j.job_id}
+                count={byStage(key).length}
+                color={STAGE_COLORS[key]}
+                renderCard={(job) => (
+                  <JobCard
+                    key={job.job_id}
+                    job={job}
+                    onClick={() => setDetailJob(job)}
+                  />
+                )}
+              />
+            ))}
+          </div>
+
+          <DragOverlay>
+            {draggingJob && (
+              <div style={{
+                background: '#fff', borderRadius: 8, padding: '12px 14px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                border: '1px solid #e2e8f0', width: 240,
+              }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{draggingJob.job_id}</div>
+                {draggingJob.su_string && <div style={{ fontSize: 12, color: '#475569' }}>{draggingJob.su_string}</div>}
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+      )}
+
+      {detailJob && (
+        <JobDetailModal
+          job={detailJob}
+          onClose={() => setDetailJob(null)}
+          onUpdated={(updated) => {
+            setJobs((prev) => prev.map((j) => j.job_id === updated.job_id ? updated : j))
+            setDetailJob(updated)
+          }}
+        />
+      )}
+
+      {showCreate && (
+        <CreateJobModal
+          onClose={() => setShowCreate(false)}
+          onCreated={(job) => setJobs((prev) => [job, ...prev])}
+        />
+      )}
+
+      {confirmState && (
+        <ConfirmationModal
+          message={confirmState.message}
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+const selectStyle: React.CSSProperties = {
+  padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+  fontSize: 14, background: '#fff', cursor: 'pointer', outline: 'none',
+}
+const filterChip: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  background: '#dbeafe', color: '#1d4ed8', borderRadius: 20,
+  padding: '3px 10px 3px 12px', fontSize: 13, fontWeight: 600,
+}
+const chipClear: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  color: '#1d4ed8', padding: 0, fontSize: 12, lineHeight: 1,
+  display: 'flex', alignItems: 'center',
+}
+const refreshBtn: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 6, border: '1px solid #d1d5db',
+  background: '#fff', cursor: 'pointer', fontSize: 14, color: '#374151',
+}
+const addBtn: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 6, border: 'none',
+  background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+}
