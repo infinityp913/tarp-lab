@@ -1,0 +1,25 @@
+# TARP Photogrammetry Dashboard Configuration
+# Edit this file to match your Windows machine paths
+
+base_path: "C:\\Users\\Photogrammetry"
+dev_base_path: "/Users/ananth/Desktop/tarp-test"
+
+stage_folders:
+  to_be_processed: "To Be Processed"
+  to_be_aligned: "To Be Aligned"
+  to_overnight: "To Overnight"
+  processed: "Processed"
+  uploaded_air: "Uploaded to AIR"
+
+# Leave qgis blank for auto-discovery
+app_paths:
+  metashape: "C:\\Program Files\\Agisoft\\Metashape Pro\\metashape.exe"
+  cloudcompare: "C:\\Program Files\\CloudCompare\\CloudCompare.exe"
+  qgis: ""
+
+# Google Sheets spreadsheet ID (from the URL: /spreadsheets/d/{ID}/edit)
+gsheets_spreadsheet_id: "1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI"
+
+# Server settings
+host: "127.0.0.1"
+port: 8000
