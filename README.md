@@ -63,8 +63,8 @@ port: 8000
 # Install dependencies (first time)
 pip install -r requirements.txt
 
-# Start server
-uvicorn backend.main:app
+# Start server (opens browser automatically)
+python3 backend/main.py
 
 # Open browser at http://127.0.0.1:8000
 ```
@@ -72,8 +72,8 @@ uvicorn backend.main:app
 ## Development
 
 ```bash
-# Backend with hot-reload
-uvicorn backend.main:app --reload
+# Backend with hot-reload (reads dev_base_path from config.yaml, handles OAuth)
+python3 backend/main.py --dev
 
 # Frontend dev server (hot-reload, proxies API to :8000)
 cd frontend && npm run dev
