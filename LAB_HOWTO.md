@@ -101,7 +101,7 @@ pip install -r requirements.txt
 
 # Run the backend with hot reload (reads dev_base_path and port from config.yaml,
 # handles Google Sheets OAuth automatically on first run)
-python3 backend/main.py --dev
+python3 -m backend.main --dev
 
 # Run the frontend dev server in a second terminal
 cd frontend && npm run dev

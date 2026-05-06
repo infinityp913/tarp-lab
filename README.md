@@ -64,7 +64,7 @@ port: 8000
 pip install -r requirements.txt
 
 # Start server (opens browser automatically)
-python3 backend/main.py
+python3 -m backend.main
 
 # Open browser at http://127.0.0.1:8000
 ```
@@ -73,7 +73,7 @@ python3 backend/main.py
 
 ```bash
 # Backend with hot-reload (reads dev_base_path from config.yaml, handles OAuth)
-python3 backend/main.py --dev
+python3 -m backend.main --dev
 
 # Frontend dev server (hot-reload, proxies API to :8000)
 cd frontend && npm run dev
