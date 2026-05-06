@@ -5,13 +5,14 @@ import {
 } from '@dnd-kit/core'
 import { fetchJobs, updateStage } from '../api/pgram'
 import type { PgramJob } from '../types'
-import { PGRAM_STAGES, TRENCHES } from '../types'
+import { PGRAM_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
 import { JobCard } from './JobCard'
 import { JobDetailModal } from './JobDetailModal'
 import { CreateJobModal } from './CreateJobModal'
 import { ConfirmationModal } from './ConfirmationModal'
 import { toast } from './Toast'
+import { T } from '../tokens'
 
 const STAGE_COLORS: Record<string, string> = {
   to_be_processed: '#94a3b8',
@@ -48,6 +49,8 @@ export function PgramTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const trenches = [...new Set(jobs.map(j => j.trench).filter(Boolean))].sort()
 
   const filtered = trenchFilter === 'All Trenches'
     ? jobs
@@ -118,7 +121,7 @@ export function PgramTab() {
           style={selectStyle}
         >
           <option>All Trenches</option>
-          {TRENCHES.map((t) => <option key={t}>{t}</option>)}
+          {trenches.map((t) => <option key={t}>{t}</option>)}
         </select>
         {trenchFilter !== 'All Trenches' && (
           <span style={filterChip}>
@@ -126,7 +129,7 @@ export function PgramTab() {
             <button onClick={() => setTrenchFilter('All Trenches')} style={chipClear} title="Clear filter">✕</button>
           </span>
         )}
-        <span style={{ fontSize: 13, color: '#6b7280' }}>
+        <span style={{ fontSize: 13, color: T.textMuted }}>
           {filtered.length} job{filtered.length !== 1 ? 's' : ''}
           {trenchFilter !== 'All Trenches' && ` of ${jobs.length}`}
         </span>
@@ -135,7 +138,7 @@ export function PgramTab() {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading jobs…</div>
+        <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading jobs…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
@@ -162,12 +165,12 @@ export function PgramTab() {
           <DragOverlay>
             {draggingJob && (
               <div style={{
-                background: '#fff', borderRadius: 8, padding: '12px 14px',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                border: '1px solid #e2e8f0', width: 240,
+                background: T.surface, borderRadius: 8, padding: '12px 14px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                border: `1px solid ${T.border}`, width: 240,
               }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{draggingJob.job_id}</div>
-                {draggingJob.su_string && <div style={{ fontSize: 12, color: '#475569' }}>{draggingJob.su_string}</div>}
+                <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{draggingJob.job_id}</div>
+                {draggingJob.su_string && <div style={{ fontSize: 12, color: T.textSub }}>{draggingJob.su_string}</div>}
               </div>
             )}
           </DragOverlay>
@@ -204,24 +207,24 @@ export function PgramTab() {
 }
 
 const selectStyle: React.CSSProperties = {
-  padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db',
-  fontSize: 14, background: '#fff', cursor: 'pointer', outline: 'none',
+  padding: '7px 12px', borderRadius: 6, border: `1px solid ${T.inputBorder}`,
+  fontSize: 14, background: T.inputBg, color: T.text, cursor: 'pointer', outline: 'none',
 }
 const filterChip: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
-  background: '#dbeafe', color: '#1d4ed8', borderRadius: 20,
+  background: T.chipBg, color: T.chipText, borderRadius: 20,
   padding: '3px 10px 3px 12px', fontSize: 13, fontWeight: 600,
 }
 const chipClear: React.CSSProperties = {
   background: 'none', border: 'none', cursor: 'pointer',
-  color: '#1d4ed8', padding: 0, fontSize: 12, lineHeight: 1,
+  color: T.chipText, padding: 0, fontSize: 12, lineHeight: 1,
   display: 'flex', alignItems: 'center',
 }
 const refreshBtn: React.CSSProperties = {
-  padding: '7px 14px', borderRadius: 6, border: '1px solid #d1d5db',
-  background: '#fff', cursor: 'pointer', fontSize: 14, color: '#374151',
+  padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
+  background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,
 }
 const addBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: 'none',
-  background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+  background: T.accent, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
 }
