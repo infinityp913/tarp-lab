@@ -1,0 +1,20 @@
+// tarp-lab — dark mode color tokens
+export const T = {
+  bg: '#0f172a',
+  surface: '#1e293b',
+  surfaceHover: '#243451',
+  border: '#334155',
+  text: '#f1f5f9',
+  textSub: '#94a3b8',
+  textMuted: '#64748b',
+  accent: '#3b82f6',
+  accentText: '#60a5fa',
+  inputBg: '#0f172a',
+  inputBorder: '#475569',
+  badgeBg: '#334155',
+  badgeText: '#94a3b8',
+  colBg: '#141e33',
+  colBgOver: '#1a2d50',
+  chipBg: '#1e3a8a',
+  chipText: '#93c5fd',
+} as const

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  DndContext, DragEndEvent, DragOverlay, DragStartEvent,
+  DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
 import { fetchJobs, updateStage } from '../api/pgram'
@@ -9,10 +9,19 @@ import { PGRAM_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
 import { JobCard } from './JobCard'
 import { JobDetailModal } from './JobDetailModal'
-import { CreateJobModal } from './CreateJobModal'
 import { ConfirmationModal } from './ConfirmationModal'
 import { toast } from './Toast'
 import { T } from '../tokens'
+
+const PGRAM_ORDER = ['to_be_processed', 'to_be_aligned', 'to_overnight', 'processed', 'uploaded_air']
+
+function isValidPgramMove(from: string, to: string): boolean {
+  if (from === to) return false
+  const fi = PGRAM_ORDER.indexOf(from)
+  const ti = PGRAM_ORDER.indexOf(to)
+  // backward moves always allowed; forward: exactly one step
+  return ti < fi || ti === fi + 1
+}
 
 const STAGE_COLORS: Record<string, string> = {
   to_be_processed: '#94a3b8',
@@ -22,12 +31,15 @@ const STAGE_COLORS: Record<string, string> = {
   uploaded_air: '#0ea5e9',
 }
 
-export function PgramTab() {
+interface Props {
+  refreshKey?: number
+}
+
+export function PgramTab({ refreshKey }: Props) {
   const [jobs, setJobs] = useState<PgramJob[]>([])
   const [loading, setLoading] = useState(true)
   const [trenchFilter, setTrenchFilter] = useState('All Trenches')
   const [detailJob, setDetailJob] = useState<PgramJob | null>(null)
-  const [showCreate, setShowCreate] = useState(false)
   const [draggingJob, setDraggingJob] = useState<PgramJob | null>(null)
   const [confirmState, setConfirmState] = useState<{
     message: string; jobId: string; targetStage: string
@@ -48,7 +60,7 @@ export function PgramTab() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, refreshKey])
 
   const trenches = [...new Set(jobs.map(j => j.trench).filter(Boolean))].sort()
 
@@ -59,9 +71,19 @@ export function PgramTab() {
   const byStage = (stageKey: string) =>
     filtered.filter((j) => j.stage === stageKey)
 
+  function resolveStage(overId: string): string {
+    const stageKeys = new Set(PGRAM_STAGES.map((s) => s.key))
+    return stageKeys.has(overId) ? overId : (jobs.find((j) => j.job_id === overId)?.stage ?? overId)
+  }
+
   function handleDragStart(event: DragStartEvent) {
     const job = jobs.find((j) => j.job_id === event.active.id)
     if (job) setDraggingJob(job)
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    // kept for KanbanColumn isValidTarget computation only; no state needed
+    void event
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -70,17 +92,15 @@ export function PgramTab() {
     if (!over) return
 
     const jobId = String(active.id)
-    const overId = String(over.id)
-
-    // over.id may be a column key OR a card's job_id (when dropped on top of a card).
-    // Resolve to the column key in the latter case.
-    const stageKeys = new Set(PGRAM_STAGES.map((s) => s.key))
-    const targetStage = stageKeys.has(overId)
-      ? overId
-      : jobs.find((j) => j.job_id === overId)?.stage ?? overId
+    const targetStage = resolveStage(String(over.id))
 
     const job = jobs.find((j) => j.job_id === jobId)
     if (!job || job.stage === targetStage) return
+
+    if (!isValidPgramMove(job.stage, targetStage)) {
+      toast('Move one step at a time — stage skipping is not allowed', 'error')
+      return
+    }
 
     const result = await updateStage(jobId, targetStage, false)
 
@@ -134,13 +154,12 @@ export function PgramTab() {
           {trenchFilter !== 'All Trenches' && ` of ${jobs.length}`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
-        <button onClick={() => setShowCreate(true)} style={addBtn}>+ New Job</button>
       </div>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading jobs…</div>
       ) : (
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
             {PGRAM_STAGES.map(({ key, label }) => (
               <KanbanColumn
@@ -151,6 +170,7 @@ export function PgramTab() {
                 getId={(j) => j.job_id}
                 count={byStage(key).length}
                 color={STAGE_COLORS[key]}
+                isValidTarget={draggingJob ? isValidPgramMove(draggingJob.stage, key) : true}
                 renderCard={(job) => (
                   <JobCard
                     key={job.job_id}
@@ -188,13 +208,6 @@ export function PgramTab() {
         />
       )}
 
-      {showCreate && (
-        <CreateJobModal
-          onClose={() => setShowCreate(false)}
-          onCreated={(job) => setJobs((prev) => [job, ...prev])}
-        />
-      )}
-
       {confirmState && (
         <ConfirmationModal
           message={confirmState.message}
@@ -223,8 +236,4 @@ const chipClear: React.CSSProperties = {
 const refreshBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
   background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,
-}
-const addBtn: React.CSSProperties = {
-  padding: '7px 14px', borderRadius: 6, border: 'none',
-  background: T.accent, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
 }

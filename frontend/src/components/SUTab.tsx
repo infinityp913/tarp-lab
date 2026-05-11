@@ -5,12 +5,25 @@ import {
 } from '@dnd-kit/core'
 import { fetchEntries, updateStage } from '../api/su'
 import type { SUEntry } from '../types'
-import { SU_STAGES, TRENCHES } from '../types'
+import { SU_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
 import { SUCard } from './SUCard'
 import { SUDetailModal } from './SUDetailModal'
 import { CreateSUModal } from './CreateSUModal'
 import { toast } from './Toast'
+import { T } from '../tokens'
+
+function isValidSUMove(from: string, to: string): boolean {
+  if (from === to) return false
+  const ORDER = ['not_started', 'volumetrics_created', 'su_sheet_created', 'uploaded_air']
+  const fi = ORDER.indexOf(from)
+  const ti = ORDER.indexOf(to)
+  if (ti < fi) return true  // backward always OK
+  if (from === 'not_started') return to === 'volumetrics_created'
+  if (from === 'volumetrics_created') return to === 'su_sheet_created' || to === 'uploaded_air'
+  if (from === 'su_sheet_created') return to === 'uploaded_air'
+  return false
+}
 
 const STAGE_COLORS: Record<string, string> = {
   not_started: '#94a3b8',
@@ -44,6 +57,8 @@ export function SUTab() {
 
   useEffect(() => { load() }, [load])
 
+  const trenches = [...new Set(entries.map(e => e.trench).filter(Boolean))].sort()
+
   const filtered = trenchFilter === 'All Trenches'
     ? entries
     : entries.filter((e) => e.trench === trenchFilter)
@@ -72,6 +87,11 @@ export function SUTab() {
     const entry = entries.find((e) => e.su_id === suId)
     if (!entry || entry.stage === targetStage) return
 
+    if (!isValidSUMove(entry.stage, targetStage)) {
+      toast('Volumetrics must be created first before other stages', 'error')
+      return
+    }
+
     setEntries((prev) =>
       prev.map((e) => e.su_id === suId ? { ...e, stage: targetStage } : e)
     )
@@ -96,7 +116,7 @@ export function SUTab() {
           style={selectStyle}
         >
           <option>All Trenches</option>
-          {TRENCHES.map((t) => <option key={t}>{t}</option>)}
+          {trenches.map((t) => <option key={t}>{t}</option>)}
         </select>
         {trenchFilter !== 'All Trenches' && (
           <span style={filterChip}>
@@ -104,16 +124,16 @@ export function SUTab() {
             <button onClick={() => setTrenchFilter('All Trenches')} style={chipClear} title="Clear filter">✕</button>
           </span>
         )}
-        <span style={{ fontSize: 13, color: '#6b7280' }}>
+        <span style={{ fontSize: 13, color: T.textMuted }}>
           {filtered.length} entr{filtered.length !== 1 ? 'ies' : 'y'}
           {trenchFilter !== 'All Trenches' && ` of ${entries.length}`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
-        <button onClick={() => setShowCreate(true)} style={addBtn}>+ New SU</button>
+        <button onClick={() => setShowCreate(true)} style={addBtn}>+ New SU Entry</button>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading SU entries…</div>
+        <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading SU entries…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
@@ -126,11 +146,15 @@ export function SUTab() {
                 getId={(e) => e.su_id}
                 count={byStage(key).length}
                 color={STAGE_COLORS[key]}
+                isValidTarget={draggingEntry ? isValidSUMove(draggingEntry.stage, key) : true}
                 renderCard={(entry) => (
                   <SUCard
                     key={entry.su_id}
                     entry={entry}
                     onClick={() => setDetailEntry(entry)}
+                    onUpdated={(updated) =>
+                      setEntries((prev) => prev.map((e) => e.su_id === updated.su_id ? updated : e))
+                    }
                   />
                 )}
               />
@@ -140,13 +164,15 @@ export function SUTab() {
           <DragOverlay>
             {draggingEntry && (
               <div style={{
-                background: '#fff', borderRadius: 8, padding: '12px 14px',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                border: '1px solid #e2e8f0', width: 240,
+                background: T.surface, borderRadius: 8, padding: '12px 14px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                border: `1px solid ${T.border}`, width: 240,
               }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{draggingEntry.su_id}</div>
-                {draggingEntry.parent_job_id && (
-                  <div style={{ fontSize: 12, color: '#475569' }}>↳ {draggingEntry.parent_job_id}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{draggingEntry.su_id}</div>
+                {(draggingEntry.top_pgram || draggingEntry.bot_pgram) && (
+                  <div style={{ fontSize: 12, color: T.textSub }}>
+                    {[draggingEntry.top_pgram, draggingEntry.bot_pgram].filter(Boolean).join(' / ')}
+                  </div>
                 )}
               </div>
             )}
@@ -176,24 +202,24 @@ export function SUTab() {
 }
 
 const selectStyle: React.CSSProperties = {
-  padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db',
-  fontSize: 14, background: '#fff', cursor: 'pointer', outline: 'none',
+  padding: '7px 12px', borderRadius: 6, border: `1px solid ${T.inputBorder}`,
+  fontSize: 14, background: T.inputBg, color: T.text, cursor: 'pointer', outline: 'none',
 }
 const filterChip: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
-  background: '#dbeafe', color: '#1d4ed8', borderRadius: 20,
+  background: T.chipBg, color: T.chipText, borderRadius: 20,
   padding: '3px 10px 3px 12px', fontSize: 13, fontWeight: 600,
 }
 const chipClear: React.CSSProperties = {
   background: 'none', border: 'none', cursor: 'pointer',
-  color: '#1d4ed8', padding: 0, fontSize: 12, lineHeight: 1,
+  color: T.chipText, padding: 0, fontSize: 12, lineHeight: 1,
   display: 'flex', alignItems: 'center',
 }
 const refreshBtn: React.CSSProperties = {
-  padding: '7px 14px', borderRadius: 6, border: '1px solid #d1d5db',
-  background: '#fff', cursor: 'pointer', fontSize: 14, color: '#374151',
+  padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
+  background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,
 }
 const addBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: 'none',
-  background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+  background: T.accent, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
 }

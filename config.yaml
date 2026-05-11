@@ -2,7 +2,7 @@
 # Edit this file to match your Windows machine paths
 
 base_path: "C:\\Users\\Photogrammetry"
-dev_base_path: "/Users/ananth/Desktop/tarp-test"
+dev_base_path: "/Users/ananth/Desktop/tarp-lab-test"
 
 stage_folders:
   to_be_processed: "To Be Processed"

@@ -8,7 +8,8 @@ export async function fetchEntries(): Promise<SUEntry[]> {
 
 export async function createEntry(data: {
   su_id: string
-  parent_job_id: string
+  top_pgram?: string
+  bot_pgram?: string
   trench: string
 }): Promise<SUEntry> {
   const res = await fetch('/api/su/entries', {
@@ -35,6 +36,18 @@ export async function updateStage(suId: string, targetStage: string): Promise<vo
   }
 }
 
+export async function updatePgrams(suId: string, topPgram: string, botPgram: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/pgrams`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ top_pgram: topPgram, bot_pgram: botPgram }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function updateNotes(suId: string, notes: string): Promise<void> {
   const res = await fetch(`/api/su/entries/${suId}/notes`, {
     method: 'PUT',
@@ -45,6 +58,15 @@ export async function updateNotes(suId: string, notes: string): Promise<void> {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)
   }
+}
+
+export async function pullFieldData(): Promise<{ total: number; with_field_data: number }> {
+  const res = await fetch('/api/sheets/pull', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
 }
 
 export async function syncSheets(): Promise<{ pgram_count: number; su_count: number }> {

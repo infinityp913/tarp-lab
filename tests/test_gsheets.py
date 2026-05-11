@@ -1,0 +1,205 @@
+"""Tests for backend/services/gsheets.py — schema, row serialization, cache logic."""
+import threading
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from backend.models import PgramJob, SUEntry, cet_now
+from backend.services.gsheets import (
+    PG_COLS, PG_NUM, PG_TRENCH, PG_NOTES, PG_UPDATED,
+    SU_COLS, SU_ID, SU_TOP_PGRAM, SU_BOT_PGRAM, SU_TRENCH, SU_VOL, SU_SHEET, SU_AIR, SU_NOTES,
+    _pg_num_str,
+    _job_to_row,
+    _su_to_row,
+    _rows_to_pgram,
+    _rows_to_su,
+    _pgram_checkboxes,
+    _su_checkboxes,
+    _su_header,
+    _pg_header,
+)
+
+
+# ─── cet_now ─────────────────────────────────────────────────────────────────
+
+def test_cet_now_format():
+    ts = cet_now()
+    # "6 May 2026, 07:45" — day, month abbreviation, year, HH:MM
+    parts = ts.split()
+    assert len(parts) == 4
+    assert parts[0].isdigit()
+    assert parts[2].rstrip(",").isdigit()
+
+
+# ─── _pg_num_str ─────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("job_id,expected", [
+    ("Pgram_Job_696", "696"),
+    ("696", "696"),
+    ("Pgram_Job_1", "1"),
+    ("001", "001"),
+])
+def test_pg_num_str(job_id, expected):
+    assert _pg_num_str(job_id) == expected
+
+
+# ─── column counts ───────────────────────────────────────────────────────────
+
+def test_pg_cols_count():
+    assert PG_COLS == 10
+    assert len(_pg_header()) == PG_COLS
+
+
+def test_su_cols_count():
+    assert SU_COLS == 9
+    assert len(_su_header()) == SU_COLS
+
+
+# ─── _job_to_row ─────────────────────────────────────────────────────────────
+
+def test_job_to_row_stores_integer():
+    job = PgramJob(job_id="Pgram_Job_696", su_string="SU001", trench="Trench 16000", stage="to_be_processed")
+    row = _job_to_row(job)
+    assert len(row) == PG_COLS
+    assert row[PG_NUM] == 696
+    assert isinstance(row[PG_NUM], int)
+    assert row[PG_TRENCH] == "Trench 16000"
+
+
+def test_job_to_row_checkboxes_processed():
+    job = PgramJob(job_id="Pgram_Job_1", su_string="", trench="", stage="processed")
+    row = _job_to_row(job)
+    photos, align, overnight, air = _pgram_checkboxes("processed")
+    assert row[4] == photos
+    assert row[5] == align
+    assert row[6] == overnight
+    assert row[7] == air
+
+
+# ─── _su_to_row ──────────────────────────────────────────────────────────────
+
+def test_su_to_row_schema():
+    entry = SUEntry(su_id="SU001", top_pgram="696", bot_pgram="697", trench="Trench 16000", stage="not_started")
+    row = _su_to_row(entry)
+    assert len(row) == SU_COLS
+    assert row[SU_ID] == "SU001"
+    assert row[SU_TOP_PGRAM] == 696
+    assert isinstance(row[SU_TOP_PGRAM], int)
+    assert row[SU_BOT_PGRAM] == 697
+    assert isinstance(row[SU_BOT_PGRAM], int)
+    assert row[SU_TRENCH] == "Trench 16000"
+
+
+def test_su_to_row_checkboxes_volumetrics_created():
+    entry = SUEntry(su_id="SU002", trench="", stage="volumetrics_created")
+    row = _su_to_row(entry)
+    vol, sheet, air = _su_checkboxes("volumetrics_created")
+    assert row[SU_VOL] == vol
+    assert row[SU_SHEET] == sheet
+    assert row[SU_AIR] == air
+
+
+def test_su_to_row_empty_pgrams():
+    entry = SUEntry(su_id="SU003", top_pgram="", bot_pgram="", trench="Trench 17000", stage="not_started")
+    row = _su_to_row(entry)
+    assert row[SU_TOP_PGRAM] == ""
+    assert row[SU_BOT_PGRAM] == ""
+
+
+# ─── _rows_to_pgram ──────────────────────────────────────────────────────────
+
+def _pg_fake_rows(*data_rows):
+    header = ["Pgram Number", "Trench", "SUs Open", "SUs Closed",
+              "Photos", "Align", "Overnight", "AIR", "Notes", "Last Updated (CET)"]
+    return [header] + list(data_rows)
+
+
+def test_rows_to_pgram_reconstructs_job_id():
+    rows = _pg_fake_rows([696, "Trench 16000", 0, 0, False, False, False, False, "", ""])
+    result = _rows_to_pgram(rows)
+    assert len(result) == 1
+    assert result[0]["job_id"] == "Pgram_Job_696"
+
+
+def test_rows_to_pgram_handles_string_number():
+    # Old-format rows where number was stored as string
+    rows = _pg_fake_rows(["697", "Trench 17000", 0, 0, "FALSE", "FALSE", "FALSE", "FALSE", "", ""])
+    result = _rows_to_pgram(rows)
+    assert result[0]["job_id"] == "Pgram_Job_697"
+
+
+def test_rows_to_pgram_skips_empty():
+    rows = _pg_fake_rows([], [698, "Trench 18000", 0, 0, False, False, False, False, "", ""])
+    result = _rows_to_pgram(rows)
+    assert len(result) == 1
+    assert result[0]["job_id"] == "Pgram_Job_698"
+
+
+def test_rows_to_pgram_stage_derivation():
+    # stage == uploaded_air when AIR col is TRUE
+    rows = _pg_fake_rows([700, "Trench 11000", 0, 0, True, True, True, True, "", ""])
+    result = _rows_to_pgram(rows)
+    assert result[0]["stage"] == "uploaded_air"
+
+
+# ─── _rows_to_su ─────────────────────────────────────────────────────────────
+
+def _su_fake_rows(*data_rows):
+    header = ["SU ID", "Top Pgram", "Bottom Pgram", "Trench",
+              "Volumetrics Created", "SU Sheet Created", "Uploaded to AIR", "Notes", "Last Updated (CET)"]
+    return [header] + list(data_rows)
+
+
+def test_rows_to_su_schema():
+    rows = _su_fake_rows(["SU001", 696, 697, "Trench 16000", False, False, False, "", ""])
+    result = _rows_to_su(rows)
+    assert len(result) == 1
+    r = result[0]
+    assert r["su_id"] == "SU001"
+    assert r["top_pgram"] == "696"
+    assert r["bot_pgram"] == "697"
+    assert r["trench"] == "Trench 16000"
+    assert r["stage"] == "not_started"
+
+
+def test_rows_to_su_stage_volumetrics():
+    rows = _su_fake_rows(["SU002", 0, 0, "", True, False, False, "", ""])
+    result = _rows_to_su(rows)
+    assert result[0]["stage"] == "volumetrics_created"
+
+
+def test_rows_to_su_skips_empty_id():
+    rows = _su_fake_rows(["", 0, 0, "", False, False, False, "", ""])
+    assert _rows_to_su(rows) == []
+
+
+def test_rows_to_su_pads_short_rows():
+    # Row with fewer columns than SU_COLS should be padded, not crash
+    rows = [["SU ID", "Top Pgram", "Bottom Pgram", "Trench", "Vol", "Sheet", "AIR", "Notes", "Updated"],
+            ["SU003"]]  # only 1 column
+    result = _rows_to_su(rows)
+    assert len(result) == 1
+    assert result[0]["su_id"] == "SU003"
+
+
+# ─── cache invalidation (unit, no real Sheets API) ───────────────────────────
+
+def test_cache_returns_stale_on_none(monkeypatch):
+    """If _read_range returns None, get_su_rows should return the cached data."""
+    import backend.services.gsheets as gs
+
+    # Seed the cache manually
+    gs._su_cache = [{"su_id": "CACHED", "top_pgram": "", "bot_pgram": "", "trench": "", "stage": "not_started", "notes": "", "last_updated": ""}]
+    gs._su_cache_time = time.time()  # fresh
+
+    # Force TTL expiry
+    gs._su_cache_time = 0
+
+    # _read_range returns None (timeout)
+    monkeypatch.setattr(gs, "_read_range", lambda _: None)
+    monkeypatch.setattr(gs, "is_available", lambda: True)
+
+    result = gs.get_su_rows()
+    assert len(result) == 1
+    assert result[0]["su_id"] == "CACHED"

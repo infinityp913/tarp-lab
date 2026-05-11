@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import Optional
 
 from backend.config import LOG_PATH, get_config
-from backend.models import FILESYSTEM_STAGES, PgramJob, utcnow
+from backend.models import FILESYSTEM_STAGES, PgramJob, cet_now
 
 logger = logging.getLogger(__name__)
 
 # Folder must be Pgram_Job_### or Pgram_Job_###_anything
 JOB_PATTERN = re.compile(r"^Pgram_Job_(\d+)(?:_(.+))?$", re.IGNORECASE)
+_MSI_SUFFIX = "_MOVED_TO_MSI"
 
 
 def _log_skip(folder: Path, reason: str):
@@ -24,7 +25,11 @@ def _log_skip(folder: Path, reason: str):
 
 
 def _parse_job_dir(job_dir: Path, stage_key: str, trench: str) -> Optional[PgramJob]:
-    m = JOB_PATTERN.match(job_dir.name)
+    # Strip _MOVED_TO_MSI suffix before matching so it doesn't corrupt su_string
+    name = job_dir.name
+    if name.upper().endswith(_MSI_SUFFIX.upper()):
+        name = name[: -len(_MSI_SUFFIX)]
+    m = JOB_PATTERN.match(name)
     if not m:
         return None
     return PgramJob(
@@ -32,7 +37,7 @@ def _parse_job_dir(job_dir: Path, stage_key: str, trench: str) -> Optional[Pgram
         su_string=m.group(2) or "",
         trench=trench,
         stage=stage_key,
-        last_updated=utcnow(),
+        last_updated=cet_now(),
     )
 
 
@@ -138,3 +143,38 @@ def find_psx_file(job: PgramJob) -> Optional[Path]:
     for psx in folder.glob("*.psx"):
         return psx
     return None
+
+
+def move_to_msi(job: PgramJob) -> Path:
+    """Rename the job folder with _MOVED_TO_MSI suffix and move it to a 'Moved to MSI' folder."""
+    cfg = get_config()
+    src = get_job_folder(job)
+    if src is None or not src.exists():
+        raise FileNotFoundError(f"Source folder not found: {src}")
+
+    base = Path(cfg.base_path)
+    msi_root = base / "Moved to MSI"
+    suffix = f"_{job.su_string}" if job.su_string else ""
+    dest_name = f"{job.job_id}{suffix}{_MSI_SUFFIX}"
+    dest = msi_root / job.trench / dest_name if job.trench else msi_root / dest_name
+    _assert_within_base(dest, base)
+
+    if dest.exists():
+        raise FileExistsError(f"A folder named '{dest_name}' already exists in Moved to MSI.")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dest))
+    return dest
+
+
+def scan_subfolders(parent_path: Optional[str] = None) -> list[str]:
+    """Return trench subfolder names within base_path (for the Create Job picker)."""
+    cfg = get_config()
+    base = Path(parent_path) if parent_path else Path(cfg.base_path)
+    _assert_within_base(base, Path(cfg.base_path))
+    if not base.exists():
+        return []
+    return sorted(
+        entry.name for entry in base.iterdir()
+        if entry.is_dir() and not JOB_PATTERN.match(entry.name)
+    )

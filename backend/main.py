@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 import webbrowser
 from pathlib import Path
 
@@ -23,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="TARP Dashboard", version="1.0.0")
+app = FastAPI(title="TARP Lab Dashboard", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +42,16 @@ app.include_router(sheets.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok", "sheets": gsheets.is_available()}
+
+
+@app.post("/api/shutdown")
+def shutdown():
+    import os, signal, threading, time
+    def _kill():
+        time.sleep(0.3)
+        os.kill(os.getpid(), signal.SIGTERM)
+    threading.Thread(target=_kill, daemon=True).start()
+    return {"ok": True}
 
 
 @app.get("/api/trenches")
@@ -64,7 +75,7 @@ if (STATIC_DIR / "assets").exists():
 @app.on_event("startup")
 def on_startup():
     cfg = get_config()
-    logger.info(f"TARP Dashboard starting. Base path: {cfg.base_path}")
+    logger.info(f"TARP Lab Dashboard starting. Base path: {cfg.base_path}")
 
     if not CREDENTIALS_PATH.exists():
         logger.warning(
@@ -75,6 +86,7 @@ def on_startup():
         try:
             gsheets.init()
             logger.info("Google Sheets initialized.")
+            threading.Thread(target=gsheets.warm_cache, daemon=True, name="cache-warm").start()
         except Exception as e:
             logger.error(f"Google Sheets init failed: {e}")
 

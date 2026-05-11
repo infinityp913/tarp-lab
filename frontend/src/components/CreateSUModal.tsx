@@ -3,6 +3,7 @@ import { TRENCHES, inferTrench } from '../types'
 import { createEntry } from '../api/su'
 import type { SUEntry } from '../types'
 import { toast } from './Toast'
+import { T } from '../tokens'
 
 interface Props {
   onClose: () => void
@@ -11,7 +12,8 @@ interface Props {
 
 export function CreateSUModal({ onClose, onCreated }: Props) {
   const [suId, setSuId] = useState('')
-  const [parentJobId, setParentJobId] = useState('')
+  const [topPgram, setTopPgram] = useState('')
+  const [botPgram, setBotPgram] = useState('')
   const [manualTrench, setManualTrench] = useState(TRENCHES[0])
   const [saving, setSaving] = useState(false)
 
@@ -24,7 +26,8 @@ export function CreateSUModal({ onClose, onCreated }: Props) {
     try {
       const entry = await createEntry({
         su_id: suId.trim(),
-        parent_job_id: parentJobId.trim(),
+        top_pgram: topPgram.trim() || undefined,
+        bot_pgram: botPgram.trim() || undefined,
         trench,
       })
       toast(`Created ${entry.su_id}`, 'success')
@@ -41,7 +44,7 @@ export function CreateSUModal({ onClose, onCreated }: Props) {
     <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div style={dialog}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 18 }}>New SU Entry</h3>
+          <h3 style={{ margin: 0, fontSize: 18, color: T.text }}>New SU Entry</h3>
           <button onClick={onClose} style={closeBtn}>✕</button>
         </div>
 
@@ -51,7 +54,7 @@ export function CreateSUModal({ onClose, onCreated }: Props) {
             value={suId}
             onChange={(e) => setSuId(e.target.value)}
             placeholder="e.g. 16014 or 16014-16015"
-            style={input}
+            style={inputStyle}
             autoFocus
           />
           {inferredTrench && (
@@ -60,19 +63,29 @@ export function CreateSUModal({ onClose, onCreated }: Props) {
         </div>
 
         <div style={fieldRow}>
-          <label style={label}>Parent Pgram Job</label>
+          <label style={label}>Top Pgram</label>
           <input
-            value={parentJobId}
-            onChange={(e) => setParentJobId(e.target.value)}
-            placeholder="Pgram_Job_694 (optional)"
-            style={input}
+            value={topPgram}
+            onChange={(e) => setTopPgram(e.target.value)}
+            placeholder="e.g. 696 (optional)"
+            style={inputStyle}
+          />
+        </div>
+
+        <div style={fieldRow}>
+          <label style={label}>Bottom Pgram</label>
+          <input
+            value={botPgram}
+            onChange={(e) => setBotPgram(e.target.value)}
+            placeholder="e.g. 697 (optional)"
+            style={inputStyle}
           />
         </div>
 
         {!inferredTrench && (
           <div style={fieldRow}>
             <label style={label}>Trench <span style={asterisk}>*</span></label>
-            <select value={manualTrench} onChange={(e) => setManualTrench(e.target.value)} style={input}>
+            <select value={manualTrench} onChange={(e) => setManualTrench(e.target.value)} style={inputStyle}>
               {TRENCHES.map((t) => <option key={t}>{t}</option>)}
             </select>
           </div>
@@ -94,30 +107,32 @@ export function CreateSUModal({ onClose, onCreated }: Props) {
 }
 
 const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
 }
 const dialog: React.CSSProperties = {
-  background: '#fff', borderRadius: 12, padding: 28, width: 440,
-  boxShadow: '0 8px 40px rgba(0,0,0,0.2)',
+  background: T.surface, borderRadius: 12, padding: 28, width: 440,
+  boxShadow: '0 8px 40px rgba(0,0,0,0.5)', border: `1px solid ${T.border}`,
 }
 const fieldRow: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 }
-const label: React.CSSProperties = { fontWeight: 600, color: '#374151', fontSize: 13 }
-const asterisk: React.CSSProperties = { color: '#ef4444' }
-const input: React.CSSProperties = {
-  padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6,
-  fontSize: 14, fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box',
+const label: React.CSSProperties = { fontWeight: 600, color: T.textSub, fontSize: 13 }
+const asterisk: React.CSSProperties = { color: '#f87171' }
+const inputStyle: React.CSSProperties = {
+  padding: '8px 10px', border: `1px solid ${T.inputBorder}`, borderRadius: 6,
+  fontSize: 14, fontFamily: 'inherit', outline: 'none',
+  width: '100%', boxSizing: 'border-box',
+  background: T.inputBg, color: T.text,
 }
-const inferred: React.CSSProperties = { fontSize: 12, color: '#16a34a' }
+const inferred: React.CSSProperties = { fontSize: 12, color: '#34d399' }
 const closeBtn: React.CSSProperties = {
-  background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9ca3af', padding: 4,
+  background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: T.textMuted, padding: 4,
 }
 const disabledStyle: React.CSSProperties = { opacity: 0.45, cursor: 'not-allowed' }
 const btnPrimary: React.CSSProperties = {
   padding: '8px 20px', borderRadius: 6, border: 'none', cursor: 'pointer',
-  background: '#2563eb', color: '#fff', fontWeight: 600, fontSize: 14,
+  background: T.accent, color: '#fff', fontWeight: 600, fontSize: 14,
 }
 const btnSecondary: React.CSSProperties = {
-  padding: '8px 20px', borderRadius: 6, border: '1px solid #d1d5db',
-  cursor: 'pointer', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 14,
+  padding: '8px 20px', borderRadius: 6, border: `1px solid ${T.border}`,
+  cursor: 'pointer', background: T.surface, color: T.textSub, fontWeight: 600, fontSize: 14,
 }

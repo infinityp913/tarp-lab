@@ -1,5 +1,6 @@
 import glob
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,9 @@ def _load_raw() -> dict:
 class Config:
     def __init__(self, dev: bool = False):
         raw = _load_raw()
+        # On non-Windows, automatically use dev_base_path when it is set
+        if not dev and sys.platform != "win32" and raw.get("dev_base_path", ""):
+            dev = True
         default_path = raw.get("dev_base_path", "") if dev else raw.get("base_path", "C:\\Users\\Photogrammetry")
         self.base_path: str = default_path or raw.get("base_path", "C:\\Users\\Photogrammetry")
         stage_cfg = raw.get("stage_folders", {})

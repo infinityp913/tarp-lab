@@ -1,5 +1,6 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { T } from '../tokens'
 
 interface Props<T> {
   id: string
@@ -9,33 +10,36 @@ interface Props<T> {
   renderCard: (item: T) => React.ReactNode
   count: number
   color?: string
+  isValidTarget?: boolean
 }
 
-export function KanbanColumn<T>({ id, title, items, getId, renderCard, count, color = '#3b82f6' }: Props<T>) {
+export function KanbanColumn<T>({ id, title, items, getId, renderCard, count, color = '#3b82f6', isValidTarget = true }: Props<T>) {
   const { setNodeRef, isOver } = useDroppable({ id })
+
+  const invalidHover = isOver && !isValidTarget
 
   return (
     <div style={{
       minWidth: 240, maxWidth: 260,
-      background: isOver ? '#eff6ff' : '#f8fafc',
+      background: invalidHover ? '#2d0808' : isOver ? T.colBgOver : T.colBg,
       borderRadius: 10,
-      border: isOver ? '2px dashed #3b82f6' : '2px solid transparent',
+      border: invalidHover ? '2px dashed #ef4444' : isOver ? `2px dashed ${color}` : '2px solid transparent',
       display: 'flex', flexDirection: 'column',
       flexShrink: 0,
       transition: 'border-color 0.15s, background 0.15s',
     }}>
       <div style={{
         padding: '12px 14px 10px',
-        borderBottom: '1px solid #e2e8f0',
+        borderBottom: `1px solid ${T.border}`,
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
         <span style={{
           display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
           background: color, flexShrink: 0,
         }} />
-        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', flex: 1 }}>{title}</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: T.text, flex: 1 }}>{title}</span>
         <span style={{
-          background: '#e2e8f0', color: '#475569', borderRadius: 20,
+          background: T.badgeBg, color: T.badgeText, borderRadius: 20,
           padding: '1px 8px', fontSize: 12, fontWeight: 600,
         }}>{count}</span>
       </div>
@@ -57,7 +61,7 @@ export function KanbanColumn<T>({ id, title, items, getId, renderCard, count, co
         </SortableContext>
         {items.length === 0 && (
           <div style={{
-            textAlign: 'center', color: '#cbd5e1', fontSize: 12,
+            textAlign: 'center', color: T.textMuted, fontSize: 12,
             paddingTop: 24, paddingBottom: 8,
           }}>
             Drop here

@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
 PGRAM_STAGES = [
@@ -30,7 +31,10 @@ class PgramJob(BaseModel):
     su_string: str
     trench: str
     stage: str
-    notes_from_field: str = ""
+    notes: str = ""           # lab-entered notes (stored in TARP Lab Pgram Tracking)
+    notes_from_field: str = ""  # pulled from TARP Field Pgram Tracking (read-only in lab)
+    sus_opened: str = ""      # pulled from TARP Field Pgram Tracking (read-only in lab)
+    sus_closed: str = ""      # pulled from TARP Field Pgram Tracking (read-only in lab)
     last_updated: str = ""
 
     @classmethod
@@ -55,7 +59,8 @@ class PgramJob(BaseModel):
 
 class SUEntry(BaseModel):
     su_id: str
-    parent_job_id: str
+    top_pgram: str = ""
+    bot_pgram: str = ""
     trench: str
     stage: str
     notes: str = ""
@@ -87,25 +92,27 @@ class UpdateNotesRequest(BaseModel):
     notes: str
 
 
+class UpdateSUPgramsRequest(BaseModel):
+    top_pgram: str = ""
+    bot_pgram: str = ""
+
+
 class CreateSUEntryRequest(BaseModel):
     su_id: str
-    parent_job_id: str
+    top_pgram: str = ""
+    bot_pgram: str = ""
     trench: str
 
 
-def utcnow() -> str:
-    dt = datetime.now(timezone.utc)
+def cet_now() -> str:
+    dt = datetime.now(ZoneInfo("Europe/Rome"))
     return f"{dt.day} {dt.strftime('%b %Y, %H:%M')}"
 
 
 TRENCHES = [
-    "Trench 11000",
-    "Trench 12000",
-    "Trench 13000",
-    "Trench 14000",
-    "Trench 15000",
-    "Trench 16000",
-    "Trench 17000",
-    "Trench 18000",
-    "Trench 19000",
+    "Trench 20000",
+    "Trench 21000",
+    "Trench 22000",
+    "Trench 23000",
+    "Trench 24000",
 ]

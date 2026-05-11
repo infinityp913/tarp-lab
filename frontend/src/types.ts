@@ -3,13 +3,17 @@ export interface PgramJob {
   su_string: string
   trench: string
   stage: string
-  notes_from_field: string
+  notes: string             // lab-entered notes (editable)
+  notes_from_field: string  // from TARP Field sheet (read-only)
+  sus_opened: string        // from TARP Field sheet (read-only)
+  sus_closed: string        // from TARP Field sheet (read-only)
   last_updated: string
 }
 
 export interface SUEntry {
   su_id: string
-  parent_job_id: string
+  top_pgram: string
+  bot_pgram: string
   trench: string
   stage: string
   notes: string
@@ -43,6 +47,5 @@ export function inferTrench(suString: string): string | null {
 }
 
 export const TRENCHES = [
-  'Trench 11000', 'Trench 12000', 'Trench 13000', 'Trench 14000', 'Trench 15000',
-  'Trench 16000', 'Trench 17000', 'Trench 18000', 'Trench 19000',
+  'Trench 20000', 'Trench 21000', 'Trench 22000', 'Trench 23000', 'Trench 24000',
 ]

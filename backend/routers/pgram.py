@@ -7,7 +7,7 @@ from backend.models import (
     PgramJob,
     StageTransitionRequest,
     UpdateNotesRequest,
-    utcnow,
+    cet_now,
 )
 from backend.services import filesystem, gsheets, launcher
 
@@ -22,13 +22,16 @@ def _build_job_list() -> list[PgramJob]:
     sheet_rows = gsheets.get_pgram_rows()
     sheet_by_id = {r["job_id"]: r for r in sheet_rows if r.get("job_id")}
 
-    # Merge: for fs_jobs, apply notes from sheet
+    # Merge: apply lab notes and field-sourced data from sheet
     merged: list[PgramJob] = []
     for job in fs_jobs:
         row = sheet_by_id.get(job.job_id)
         if row:
+            job.notes = row.get("notes", "")
             job.notes_from_field = row.get("notes_from_field", "")
-            job.last_updated = row.get("last_updated", utcnow())
+            job.sus_opened = row.get("sus_opened", "")
+            job.sus_closed = row.get("sus_closed", "")
+            job.last_updated = row.get("last_updated", cet_now())
         merged.append(job)
 
     return sorted(merged, key=lambda j: j.numeric_id, reverse=True)
@@ -54,7 +57,7 @@ def create_job(req: CreatePgramJobRequest):
         su_string=req.su_string,
         trench=req.trench,
         stage="to_be_processed",
-        last_updated=utcnow(),
+        last_updated=cet_now(),
     )
     try:
         gsheets.upsert_pgram(job)
@@ -102,7 +105,7 @@ def update_stage(job_id: str, req: StageTransitionRequest):
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Google Sheets unavailable: {e}")
 
-    updated = PgramJob(**{**job.model_dump(), "stage": target, "last_updated": utcnow()})
+    updated = PgramJob(**{**job.model_dump(), "stage": target, "last_updated": cet_now()})
     return updated.model_dump()
 
 
