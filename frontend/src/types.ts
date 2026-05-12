@@ -30,7 +30,7 @@ export const PGRAM_STAGES = [
 
 export const SU_STAGES = [
   { key: 'not_started', label: 'Not Started' },
-  { key: 'volumetrics_created', label: 'Volumetrics Created' },
+  { key: 'volumetrics_created', label: 'Volume Created' },
   { key: 'su_sheet_created', label: 'SU Sheet Created' },
   { key: 'uploaded_air', label: 'Uploaded to AIR' },
 ]

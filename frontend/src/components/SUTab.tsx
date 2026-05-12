@@ -88,7 +88,7 @@ export function SUTab() {
     if (!entry || entry.stage === targetStage) return
 
     if (!isValidSUMove(entry.stage, targetStage)) {
-      toast('Volumetrics must be created first before other stages', 'error')
+      toast('Volume must be created first before other stages', 'error')
       return
     }
 

@@ -70,7 +70,7 @@ class SUEntry(BaseModel):
     def stage_label(cls, stage: str) -> str:
         labels = {
             "not_started": "Not Started",
-            "volumetrics_created": "Volumetrics Created",
+            "volumetrics_created": "Volume Created",
             "su_sheet_created": "SU Sheet Created",
             "uploaded_air": "Uploaded to AIR",
         }

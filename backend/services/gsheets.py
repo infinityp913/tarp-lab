@@ -23,7 +23,7 @@ SU Trench tabs (one per trench: Trench 20000 … Trench 24000) columns (0-indexe
   0  SU ID
   1  Top Pgram           ← integer pgram number
   2  Bottom Pgram        ← integer pgram number
-  3  Volumetrics Created ← TRUE when stage >= volumetrics_created
+  3  Volume Created      ← TRUE when stage >= volumetrics_created
   4  SU Sheet Created    ← TRUE when stage >= su_sheet_created
   5  Uploaded to AIR     ← TRUE when stage == uploaded_air
   6  Notes
@@ -368,6 +368,23 @@ def _read_range(range_name: str) -> Optional[list[list]]:
         return None
 
 
+def _batch_read_ranges(ranges: list[str]) -> Optional[list[list[list]]]:
+    """Fetch multiple ranges in one API call. Returns results in the same order as `ranges`."""
+    svc = _get_service()
+    if svc is None:
+        return None
+    sid = get_config().gsheets_spreadsheet_id
+    try:
+        result = _execute(
+            svc.spreadsheets().values().batchGet(spreadsheetId=sid, ranges=ranges),
+            num_retries=2,
+        )
+        return [vr.get("values", []) for vr in result.get("valueRanges", [])]
+    except Exception as e:
+        _log_error(f"_batch_read_ranges failed: {e}")
+        return None
+
+
 def _write_range(range_name: str, values: list[list]):
     svc = _get_service()
     if svc is None:
@@ -415,7 +432,7 @@ def _pg_header() -> list:
 def _su_header() -> list:
     return [
         "SU ID", "Top Pgram", "Bottom Pgram",
-        "Volumetrics Created", "SU Sheet Created",
+        "Volume Created", "SU Sheet Created",
         "Uploaded to AIR",
         "Notes", "Last Updated (CET)",
     ]
@@ -584,7 +601,7 @@ def get_pgram_rows() -> list[dict]:
 
 
 def get_su_rows() -> list[dict]:
-    """Read all 5 trench tabs and return a combined flat list."""
+    """Read all 5 trench tabs in one batchGet call and return a combined flat list."""
     global _su_cache, _su_cache_time
     with _cache_lock:
         if time.time() - _su_cache_time < _SU_CACHE_TTL:
@@ -593,20 +610,18 @@ def get_su_rows() -> list[dict]:
     if not is_available():
         return []
 
-    combined: list[dict] = []
-    failed = False
-    for tab in _SU_TRENCH_TABS:
-        trench = tab.replace("Trench ", "")
-        rows = _read_range(f"{tab}!A:H")
-        if rows is None:
-            logger.warning(f"get_su_rows: read failed for {tab} — returning stale cache")
-            failed = True
-            break
-        combined.extend(_rows_to_su(rows, trench))
+    ranges = [f"{tab}!A:H" for tab in _SU_TRENCH_TABS]
+    all_rows = _batch_read_ranges(ranges)
 
-    if failed:
+    if all_rows is None:
+        logger.warning("get_su_rows: batchGet failed — returning stale cache")
         with _cache_lock:
             return list(_su_cache)
+
+    combined: list[dict] = []
+    for tab, rows in zip(_SU_TRENCH_TABS, all_rows):
+        trench = tab.replace("Trench ", "")
+        combined.extend(_rows_to_su(rows, trench))
 
     with _cache_lock:
         _su_cache = combined
