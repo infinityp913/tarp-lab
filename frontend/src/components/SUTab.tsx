@@ -143,7 +143,6 @@ export function SUTab() {
                 id={key}
                 title={label}
                 items={byStage(key)}
-                getId={(e) => e.su_id}
                 count={byStage(key).length}
                 color={STAGE_COLORS[key]}
                 isValidTarget={draggingEntry ? isValidSUMove(draggingEntry.stage, key) : true}

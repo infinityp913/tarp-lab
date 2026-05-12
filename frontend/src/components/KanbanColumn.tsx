@@ -1,19 +1,17 @@
 import { useDroppable } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { T } from '../tokens'
 
 interface Props<T> {
   id: string
   title: string
   items: T[]
-  getId: (item: T) => string
   renderCard: (item: T) => React.ReactNode
   count: number
   color?: string
   isValidTarget?: boolean
 }
 
-export function KanbanColumn<T>({ id, title, items, getId, renderCard, count, color = '#3b82f6', isValidTarget = true }: Props<T>) {
+export function KanbanColumn<T>({ id, title, items, renderCard, count, color = '#3b82f6', isValidTarget = true }: Props<T>) {
   const { setNodeRef, isOver } = useDroppable({ id })
 
   const invalidHover = isOver && !isValidTarget
@@ -53,12 +51,7 @@ export function KanbanColumn<T>({ id, title, items, getId, renderCard, count, co
           overflowY: 'auto', maxHeight: 'calc(100vh - 220px)',
         }}
       >
-        <SortableContext
-          items={items.map(getId)}
-          strategy={verticalListSortingStrategy}
-        >
           {items.map(renderCard)}
-        </SortableContext>
         {items.length === 0 && (
           <div style={{
             textAlign: 'center', color: T.textMuted, fontSize: 12,

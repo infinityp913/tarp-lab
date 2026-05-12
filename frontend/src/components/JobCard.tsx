@@ -1,4 +1,4 @@
-import { useSortable } from '@dnd-kit/sortable'
+import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { PgramJob } from '../types'
 import { openApp } from '../api/pgram'
@@ -12,12 +12,11 @@ interface Props {
 
 export function JobCard({ job, onClick }: Props) {
   const {
-    attributes, listeners, setNodeRef, transform, transition, isDragging,
-  } = useSortable({ id: job.job_id })
+    attributes, listeners, setNodeRef, transform, isDragging,
+  } = useDraggable({ id: job.job_id })
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
-    transition,
     opacity: isDragging ? 0.4 : 1,
   }
 

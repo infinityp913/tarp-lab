@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useSortable } from '@dnd-kit/sortable'
+import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
 import { updatePgrams } from '../api/su'
@@ -14,8 +14,8 @@ interface Props {
 
 export function SUCard({ entry, onClick, onUpdated }: Props) {
   const {
-    attributes, listeners, setNodeRef, transform, transition, isDragging,
-  } = useSortable({ id: entry.su_id })
+    attributes, listeners, setNodeRef, transform, isDragging,
+  } = useDraggable({ id: entry.su_id })
 
   const [top, setTop] = useState(entry.top_pgram)
   const [bot, setBot] = useState(entry.bot_pgram)
@@ -24,7 +24,6 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
-    transition,
     opacity: isDragging ? 0.4 : 1,
   }
 
