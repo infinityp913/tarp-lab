@@ -8,20 +8,21 @@ interface Props<T> {
   renderCard: (item: T) => React.ReactNode
   count: number
   color?: string
-  isValidTarget?: boolean
+  isValidTarget?: boolean | 'source'
 }
 
 export function KanbanColumn<T>({ id, title, items, renderCard, count, color = '#3b82f6', isValidTarget = true }: Props<T>) {
   const { setNodeRef, isOver } = useDroppable({ id })
 
-  const invalidHover = isOver && !isValidTarget
+  const invalidHover = isOver && isValidTarget === false
+  const sourceHover  = isOver && isValidTarget === 'source'
 
   return (
     <div style={{
       minWidth: 240, maxWidth: 260,
-      background: invalidHover ? '#2d0808' : isOver ? T.colBgOver : T.colBg,
+      background: invalidHover ? '#2d0808' : (isOver && !sourceHover) ? T.colBgOver : T.colBg,
       borderRadius: 10,
-      border: invalidHover ? '2px dashed #ef4444' : isOver ? `2px dashed ${color}` : '2px solid transparent',
+      border: invalidHover ? '2px dashed #ef4444' : (isOver && !sourceHover) ? `2px dashed ${color}` : '2px solid transparent',
       display: 'flex', flexDirection: 'column',
       flexShrink: 0,
       transition: 'border-color 0.15s, background 0.15s',

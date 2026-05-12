@@ -169,7 +169,7 @@ export function PgramTab({ refreshKey }: Props) {
                 items={byStage(key)}
                 count={byStage(key).length}
                 color={STAGE_COLORS[key]}
-                isValidTarget={draggingJob ? isValidPgramMove(draggingJob.stage, key) : true}
+                isValidTarget={draggingJob ? (draggingJob.stage === key ? 'source' : isValidPgramMove(draggingJob.stage, key)) : true}
                 renderCard={(job) => (
                   <JobCard
                     key={job.job_id}

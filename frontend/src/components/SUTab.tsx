@@ -145,7 +145,7 @@ export function SUTab() {
                 items={byStage(key)}
                 count={byStage(key).length}
                 color={STAGE_COLORS[key]}
-                isValidTarget={draggingEntry ? isValidSUMove(draggingEntry.stage, key) : true}
+                isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUMove(draggingEntry.stage, key)) : true}
                 renderCard={(entry) => (
                   <SUCard
                     key={entry.su_id}
