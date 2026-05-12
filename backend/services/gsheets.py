@@ -50,6 +50,8 @@ _su_cache: list[dict] = []
 _pgram_cache_time: float = 0
 _su_cache_time: float = 0
 _cache_lock = threading.Lock()
+# httplib2 connection pool is not thread-safe — all .execute() calls must be serialized
+_api_lock = threading.Lock()
 _gsheets_available = True
 _service = None
 _creds = None  # Cached credentials — kept to detect mid-session revocation
@@ -105,6 +107,12 @@ _SU_STAGE_ORDER = {s: i for i, s in enumerate(SU_STAGES)}
 _HEADER_R = 46 / 255
 _HEADER_G = 92 / 255
 _HEADER_B = 40 / 255
+
+
+def _execute(request, num_retries: int = 0):
+    """Run a Sheets API request under the serialization lock."""
+    with _api_lock:
+        return request.execute(num_retries=num_retries)
 
 
 def _log_error(msg: str):
@@ -264,7 +272,7 @@ def _ensure_sheets() -> tuple[int, dict[str, int]]:
         return 0, {}
     sid = get_config().gsheets_spreadsheet_id
     try:
-        meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+        meta = _execute(svc.spreadsheets().get(spreadsheetId=sid))
         existing = {s["properties"]["title"]: s["properties"]["sheetId"]
                     for s in meta.get("sheets", [])}
 
@@ -275,10 +283,10 @@ def _ensure_sheets() -> tuple[int, dict[str, int]]:
         ]
 
         if add_requests:
-            svc.spreadsheets().batchUpdate(
+            _execute(svc.spreadsheets().batchUpdate(
                 spreadsheetId=sid, body={"requests": add_requests}
-            ).execute()
-            meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+            ))
+            meta = _execute(svc.spreadsheets().get(spreadsheetId=sid))
             existing = {s["properties"]["title"]: s["properties"]["sheetId"]
                         for s in meta.get("sheets", [])}
 
@@ -324,14 +332,14 @@ def _apply_sheet_style(svc, sid: str, sheet_id: int, num_cols: int, bool_cols: l
             }
         })
     try:
-        svc.spreadsheets().batchUpdate(
+        _execute(svc.spreadsheets().batchUpdate(
             spreadsheetId=sid, body={"requests": fmt_requests}
-        ).execute()
+        ))
     except Exception as e:
         _log_error(f"_apply_sheet_style (format+validation) failed: {e}")
 
     try:
-        svc.spreadsheets().batchUpdate(
+        _execute(svc.spreadsheets().batchUpdate(
             spreadsheetId=sid,
             body={"requests": [{
                 "autoResizeDimensions": {
@@ -339,7 +347,7 @@ def _apply_sheet_style(svc, sid: str, sheet_id: int, num_cols: int, bool_cols: l
                                    "startIndex": 0, "endIndex": num_cols}
                 }
             }]},
-        ).execute()
+        ))
     except Exception as e:
         _log_error(f"_apply_sheet_style (auto-resize) failed (non-fatal): {e}")
 
@@ -350,11 +358,9 @@ def _read_range(range_name: str) -> Optional[list[list]]:
         return None
     sid = get_config().gsheets_spreadsheet_id
     try:
-        result = (
-            svc.spreadsheets()
-            .values()
-            .get(spreadsheetId=sid, range=range_name)
-            .execute(num_retries=2)
+        result = _execute(
+            svc.spreadsheets().values().get(spreadsheetId=sid, range=range_name),
+            num_retries=2,
         )
         return result.get("values", [])
     except Exception as e:
@@ -368,12 +374,12 @@ def _write_range(range_name: str, values: list[list]):
         return
     sid = get_config().gsheets_spreadsheet_id
     try:
-        svc.spreadsheets().values().update(
+        _execute(svc.spreadsheets().values().update(
             spreadsheetId=sid,
             range=range_name,
             valueInputOption="RAW",
             body={"values": values},
-        ).execute()
+        ))
     except Exception as e:
         _log_error(f"_write_range({range_name}) failed: {e}")
         raise
@@ -385,13 +391,13 @@ def _append_row(sheet: str, row: list):
         return
     sid = get_config().gsheets_spreadsheet_id
     try:
-        svc.spreadsheets().values().append(
+        _execute(svc.spreadsheets().values().append(
             spreadsheetId=sid,
             range=f"{sheet}!A1",
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [row]},
-        ).execute()
+        ))
     except Exception as e:
         _log_error(f"_append_row({sheet}) failed: {e}")
         raise
@@ -808,7 +814,7 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
     sid = get_config().gsheets_spreadsheet_id
 
     # Write lab pgram sheet directly
-    svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{_LAB_PGRAM_SHEET}!A:H").execute()
+    _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{_LAB_PGRAM_SHEET}!A:H"))
     _write_range(f"{_LAB_PGRAM_SHEET}!A1", pgram_rows)
 
     if pg_sheet_id:
@@ -826,7 +832,7 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
         trench = tab.replace("Trench ", "")
         entries = entries_by_trench.get(trench, [])
         su_rows = [_su_header()] + [_su_to_row(e) for e in entries]
-        svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:H").execute()
+        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:H"))
         _write_range(f"{tab}!A1", su_rows)
         tab_id = trench_tab_ids.get(tab, 0)
         if tab_id:
