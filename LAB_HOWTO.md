@@ -24,18 +24,16 @@ You only need to do this once.
 1. Go to [python.org/downloads](https://www.python.org/downloads/) and download the latest Python 3 installer.
 2. Run the installer. On the first screen, **tick "Add Python to PATH"** before clicking Install Now.
 
-**Clone the repository:**
-1. Open Command Prompt (press `Win + R`, type `cmd`, press Enter).
-2. Run the following commands — this clones the repo to your Desktop and installs all dependencies:
-   ```
-   cd %USERPROFILE%\Desktop
-   git clone https://github.com/infinityp913/tarp-lab.git
-   cd tarp-lab
-   pip install -r requirements.txt
-   ```
-3. Close Command Prompt. You should now see a `tarp-lab` folder on your Desktop.
+**Download the dashboard:**
+1. Go to [github.com/infinityp913/tarp-lab](https://github.com/infinityp913/tarp-lab)
+2. Click the green **Code** button → **Download ZIP**
+3. Open your Downloads folder, right-click the ZIP → **Extract All…** and extract to your Desktop
 
-> If `git` is not recognised, download and install Git from [git-scm.com](https://git-scm.com/download/win), then reopen Command Prompt and repeat the commands above.
+**Install dependencies:**
+4. Open the extracted `tarp-lab-main` folder on your Desktop
+5. Double-click **`setup.bat`** — a window will appear, wait for **"Setup complete"** then close it
+
+You're ready. Proceed to Step 1.
 
 ### Step 1 — Get access to the Google Sheet
 
