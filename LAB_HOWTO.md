@@ -20,7 +20,7 @@ You only need to do this once.
 
 ### Step 1 — Get access to the Google Sheet
 
-Ask **Ananth** to share the TARP tracking Google Sheet for the current season with your Google account. You need edit access.
+Ask **Ananth** to share [the TARP tracking Google Sheet](https://docs.google.com/spreadsheets/d/1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI/edit?gid=1174152009#gid=1174152009) for the current season with your Google account. You need edit access.
 
 ### Step 2 — Get the credentials file
 
