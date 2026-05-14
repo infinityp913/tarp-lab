@@ -30,8 +30,8 @@ You only need to do this once.
 3. Open your Downloads folder, right-click the ZIP → **Extract All…** and extract to your Desktop
 
 **Install dependencies:**
-4. Open the extracted `tarp-lab-main` folder on your Desktop
-5. Double-click **`setup.bat`** — a window will appear, wait for **"Setup complete"** then close it
+4. Open the extracted folder on your Desktop — it will be called `tarp-lab-main`. Rename it to **`tarp-lab`** (right-click → Rename)
+5. Open the `tarp-lab` folder and double-click **`setup.bat`** — a window will appear, wait for **"Setup complete"** then close it
 
 You're ready. Proceed to Step 1.
 
