@@ -35,15 +35,34 @@ You only need to do this once.
 
 You're ready. Proceed to Step 1.
 
-### Step 1 — Get access to the Google Sheet
+### Step 1 — Set up the stage folders
+
+The dashboard reads photogrammetry jobs from a fixed folder structure on this machine. You need to create it once.
+
+1. Open **File Explorer** and navigate to `C:\Users\Photogrammetry` — create this folder if it doesn't exist.
+2. Inside `C:\Users\Photogrammetry`, create these five subfolders (names must match exactly):
+   - `To Be Processed`
+   - `To Be Aligned`
+   - `To Overnight`
+   - `Processed`
+   - `Uploaded to AIR`
+3. Open `config.yaml` in the `tarp-lab` folder (the same folder as `start.bat`) and check that the `base_path` line points to the folder you just created:
+   ```
+   base_path: "C:\Users\Photogrammetry"
+   ```
+   If your folder is in a different location, update this line to match before continuing.
+
+Inside each stage folder, jobs live in **trench subfolders** named after the trench (e.g. `Trench_16000`), and individual job folders follow the pattern `Pgram_Job_###_<SU_string>` (e.g. `Pgram_Job_696_SU16014`). The dashboard creates new job folders for you automatically — you only need the five stage folders to exist.
+
+### Step 2 — Get access to the Google Sheet
 
 Ask **Ananth** to share [the TARP tracking Google Sheet](https://docs.google.com/spreadsheets/d/1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI/edit?gid=1174152009#gid=1174152009) for the current season with your Google account. You need edit access.
 
-### Step 2 — Get the credentials file
+### Step 3 — Get the credentials file
 
 Ask **Ananth** for the `credentials.json` file and place it inside the `tarp-lab` folder (the same folder where `start.bat` is). Do not rename the file.
 
-### Step 3 — Authorise the app
+### Step 4 — Authorise the app
 
 The next time you double-click `start.bat`, a browser window will open asking you to sign in to Google and grant access. Use the Google account that Ananth shared the sheet with, then click **Allow**.
 
