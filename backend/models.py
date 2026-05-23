@@ -82,6 +82,17 @@ class StageTransitionRequest(BaseModel):
     confirmed: bool = False
 
 
+class IgnoredFolder(BaseModel):
+    """A folder found under a stage directory that does not match the
+    Pgram_Job_### convention and is therefore not shown on the board.
+    Surfaced in the UI so users notice misnamed folders instead of
+    wondering why a job they expected is missing.
+    """
+    name: str
+    stage: str
+    parent: str = ""  # empty for top-level; "Trench XXX" if nested
+
+
 class CreatePgramJobRequest(BaseModel):
     job_id: str
     su_string: str = ""
