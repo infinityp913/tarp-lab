@@ -20,6 +20,8 @@ function stageLabel(key: string): string {
   return PGRAM_STAGES.find((s) => s.key === key)?.label ?? key
 }
 
+const toKey = (f: IgnoredFolder) => `${f.stage}|${f.parent}|${f.name}`
+
 function isValidPgramMove(from: string, to: string): boolean {
   if (from === to) return false
   const fi = PGRAM_ORDER.indexOf(from)
@@ -67,13 +69,14 @@ export function PgramTab({ refreshKey }: Props) {
     }
     try {
       const ignored = await fetchIgnoredFolders()
-      const toKey = (fs: IgnoredFolder[]) => fs.map(f => `${f.stage}|${f.parent}|${f.name}`).sort().join(',')
       setIgnoredFolders(prev => {
-        if (toKey(prev) !== toKey(ignored)) setIgnoredDismissed(false)
+        const prevKey = prev.map(toKey).sort().join(',')
+        const nextKey = ignored.map(toKey).sort().join(',')
+        if (prevKey !== nextKey) setIgnoredDismissed(false)
         return ignored
       })
-    } catch (err) {
-      console.error('Failed to load ignored folders:', err)
+    } catch (e) {
+      console.error('Failed to load ignored folders', e)
     }
   }, [])
 
@@ -181,7 +184,7 @@ export function PgramTab({ refreshKey }: Props) {
             </div>
             <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
               {ignoredFolders.slice(0, 8).map((f, i) => (
-                <span key={`${f.stage}|${f.parent}|${f.name}`}>
+                <span key={toKey(f)}>
                   <code style={{ background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>{f.name}</code>
                   <span style={{ opacity: 0.7 }}> in {stageLabel(f.stage)}{f.parent && ` › ${f.parent}`}</span>
                   {i < Math.min(ignoredFolders.length, 8) - 1 ? ', ' : ''}
