@@ -183,11 +183,11 @@ export function PgramTab({ refreshKey }: Props) {
               ⚠ {ignoredFolders.length} folder{ignoredFolders.length !== 1 ? 's' : ''} not shown — name does not match <code style={{ background: '#fde68a', padding: '0 4px', borderRadius: 3 }}>Pgram_Job_###</code>
             </div>
             <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
-              {ignoredFolders.slice(0, 8).map((f) => (
+              {ignoredFolders.slice(0, 8).map((f, i) => (
                 <span key={toKey(f)}>
                   <code style={{ background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>{f.name}</code>
                   <span style={{ opacity: 0.7 }}> in {stageLabel(f.stage)}{f.parent && ` › ${f.parent}`}</span>
-                  {ignoredFolders.indexOf(f) < Math.min(ignoredFolders.length, 8) - 1 ? ', ' : ''}
+                  {i < Math.min(ignoredFolders.length, 8) - 1 ? ', ' : ''}
                 </span>
               ))}
               {ignoredFolders.length > 8 && <span> … and {ignoredFolders.length - 8} more</span>}

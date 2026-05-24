@@ -192,6 +192,73 @@ def test_move_to_msi_duplicate_raises(tmp_path, use_tmp_base):
         move_to_msi(job2)
 
 
+# ─── scan_ignored_folders ────────────────────────────────────────────────────
+
+def test_scan_ignored_empty_stages(tmp_path, use_tmp_base):
+    # No stage dirs exist → empty list, no crash.
+    assert scan_ignored_folders() == []
+
+
+def test_scan_ignored_valid_jobs_not_flagged(tmp_path, use_tmp_base):
+    (tmp_path / "To Be Processed" / "Pgram_Job_001").mkdir(parents=True)
+    (tmp_path / "To Be Aligned" / "Pgram_Job_002_SU010").mkdir(parents=True)
+    assert scan_ignored_folders() == []
+
+
+def test_scan_ignored_trench_container_valid_children_not_flagged(tmp_path, use_tmp_base):
+    (tmp_path / "To Be Processed" / "Trench 17000" / "Pgram_Job_003").mkdir(parents=True)
+    assert scan_ignored_folders() == []
+
+
+def test_scan_ignored_trench_container_misnamed_child_flagged(tmp_path, use_tmp_base):
+    (tmp_path / "To Be Processed" / "Trench 17000" / "PreSU17001").mkdir(parents=True)
+    result = scan_ignored_folders()
+    assert len(result) == 1
+    assert result[0].name == "PreSU17001"
+    assert result[0].stage == "to_be_processed"
+    assert result[0].parent == "Trench 17000"
+
+
+def test_scan_ignored_non_trench_with_job_children_treated_as_container(tmp_path, use_tmp_base):
+    # A folder that doesn't start with "Trench " but contains a valid job subfolder
+    # should be treated as a container (not flagged), and only its misnamed children flagged.
+    container = tmp_path / "Processed" / "TR17000"
+    (container / "Pgram_Job_010").mkdir(parents=True)
+    (container / "BadFolder").mkdir(parents=True)
+    result = scan_ignored_folders()
+    names = [r.name for r in result]
+    assert "TR17000" not in names
+    assert "BadFolder" in names
+    assert result[0].parent == "TR17000"
+
+
+def test_scan_ignored_misnamed_top_level_no_job_children(tmp_path, use_tmp_base):
+    # A folder that doesn't start with "Trench " and has no job children → flagged itself.
+    (tmp_path / "To Be Processed" / "PreSU17001").mkdir(parents=True)
+    result = scan_ignored_folders()
+    assert len(result) == 1
+    assert result[0].name == "PreSU17001"
+    assert result[0].parent == ""
+
+
+def test_scan_ignored_hidden_folders_skipped(tmp_path, use_tmp_base):
+    stage = tmp_path / "To Be Processed"
+    stage.mkdir()
+    (stage / ".DS_Store_folder").mkdir()
+    assert scan_ignored_folders() == []
+
+
+def test_scan_ignored_returns_ignored_folder_model(tmp_path, use_tmp_base):
+    from backend.models import IgnoredFolder
+    (tmp_path / "To Be Processed" / "BadName").mkdir(parents=True)
+    result = scan_ignored_folders()
+    assert len(result) == 1
+    assert isinstance(result[0], IgnoredFolder)
+    assert result[0].name == "BadName"
+    assert result[0].stage == "to_be_processed"
+    assert result[0].parent == ""
+
+
 # ─── scan_subfolders ─────────────────────────────────────────────────────────
 
 def test_scan_subfolders(tmp_path, use_tmp_base):
