@@ -67,14 +67,13 @@ export function PgramTab({ refreshKey }: Props) {
     }
     try {
       const ignored = await fetchIgnoredFolders()
+      const toKey = (fs: IgnoredFolder[]) => fs.map(f => `${f.stage}|${f.parent}|${f.name}`).sort().join(',')
       setIgnoredFolders(prev => {
-        const prevKey = prev.map(f => `${f.stage}|${f.parent}|${f.name}`).sort().join(',')
-        const nextKey = ignored.map(f => `${f.stage}|${f.parent}|${f.name}`).sort().join(',')
-        if (prevKey !== nextKey) setIgnoredDismissed(false)
+        if (toKey(prev) !== toKey(ignored)) setIgnoredDismissed(false)
         return ignored
       })
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to load ignored folders:', err)
     }
   }, [])
 
@@ -182,7 +181,7 @@ export function PgramTab({ refreshKey }: Props) {
             </div>
             <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
               {ignoredFolders.slice(0, 8).map((f, i) => (
-                <span key={i}>
+                <span key={`${f.stage}|${f.parent}|${f.name}`}>
                   <code style={{ background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>{f.name}</code>
                   <span style={{ opacity: 0.7 }}> in {stageLabel(f.stage)}{f.parent && ` › ${f.parent}`}</span>
                   {i < Math.min(ignoredFolders.length, 8) - 1 ? ', ' : ''}
