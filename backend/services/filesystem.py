@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from backend.config import LOG_PATH, get_config
-from backend.models import FILESYSTEM_STAGES, PgramJob, cet_now
+from backend.models import FILESYSTEM_STAGES, IgnoredFolder, PgramJob, cet_now
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def _log_skip(folder: Path, reason: str):
         pass
 
 
-def _parse_job_dir(job_dir: Path, stage_key: str, trench: str) -> Optional[PgramJob]:
+def _parse_job_dir(job_dir: Path, stage_key: str) -> Optional[PgramJob]:
     # Strip _MOVED_TO_MSI suffix before matching so it doesn't corrupt su_string
     name = job_dir.name
     if name.upper().endswith(_MSI_SUFFIX.upper()):
@@ -32,9 +32,16 @@ def _parse_job_dir(job_dir: Path, stage_key: str, trench: str) -> Optional[Pgram
     m = JOB_PATTERN.match(name)
     if not m:
         return None
+    su_string = m.group(2) or ""
+    # Infer trench from SU number (e.g. SU17001 → Trench 17000), matching field logic.
+    # scan_filesystem overrides this with the authoritative filesystem directory name.
+    trench = ""
+    su_m = re.search(r"SU\s*(\d+)", su_string, re.IGNORECASE)
+    if su_m:
+        trench = f"Trench {(int(su_m.group(1)) // 1000) * 1000}"
     return PgramJob(
         job_id=f"Pgram_Job_{m.group(1)}",
-        su_string=m.group(2) or "",
+        su_string=su_string,
         trench=trench,
         stage=stage_key,
         last_updated=cet_now(),
@@ -60,21 +67,59 @@ def scan_filesystem() -> list[PgramJob]:
             # 1. stage_root/Pgram_Job_###  (flat — no trench subdir)
             # 2. stage_root/TrenchName/Pgram_Job_###  (nested — standard)
             if JOB_PATTERN.match(entry.name):
-                job = _parse_job_dir(entry, stage_key, trench="")
+                job = _parse_job_dir(entry, stage_key)
                 if job:
+                    job.trench = ""  # flat layout — no trench directory
                     jobs.append(job)
             else:
                 trench = entry.name
                 for job_dir in entry.iterdir():
                     if not job_dir.is_dir():
                         continue
-                    job = _parse_job_dir(job_dir, stage_key, trench)
+                    job = _parse_job_dir(job_dir, stage_key)
                     if job:
+                        job.trench = trench  # authoritative: from filesystem dir name
                         jobs.append(job)
                     else:
                         _log_skip(job_dir, "folder name does not match Pgram_Job_### pattern")
 
     return sorted(jobs, key=lambda j: j.numeric_id, reverse=True)
+
+
+def scan_ignored_folders() -> list[IgnoredFolder]:
+    """Walk every scanned stage directory and collect sub-folders whose names do NOT match
+    Pgram_Job_###. These are silently skipped by scan_filesystem(); surfacing them here lets
+    the UI warn users about misnamed folders (e.g. 'PreSU17001' instead of 'Pgram_Job_123_SU17001').
+
+    Folders that contain valid job children are treated as containers; only their misnamed
+    children are flagged. Empty non-matching folders and known Trench containers are handled
+    consistently with scan_filesystem's layout detection.
+    """
+    cfg = get_config()
+    ignored: list[IgnoredFolder] = []
+
+    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed"):
+        folder_name = cfg.stage_folders[stage_key]
+        stage_root = Path(cfg.base_path) / folder_name
+        if not stage_root.exists():
+            continue
+
+        for entry in sorted(stage_root.iterdir()):
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            if _parse_job_dir(entry, stage_key) is not None:
+                continue
+            subdirs = [s for s in entry.iterdir() if s.is_dir() and not s.name.startswith(".")]
+            has_job_children = any(_parse_job_dir(s, stage_key) is not None for s in subdirs)
+            if has_job_children or entry.name.startswith("Trench "):
+                for sub in sorted(subdirs):
+                    if _parse_job_dir(sub, stage_key) is not None:
+                        continue
+                    ignored.append(IgnoredFolder(name=sub.name, stage=stage_key, parent=entry.name))
+            else:
+                ignored.append(IgnoredFolder(name=entry.name, stage=stage_key))
+
+    return ignored
 
 
 def _job_path(base: Path, folder_name: str, trench: str, job_id: str, su_string: str) -> Path:

@@ -82,6 +82,12 @@ class StageTransitionRequest(BaseModel):
     confirmed: bool = False
 
 
+class IgnoredFolder(BaseModel):
+    name: str
+    stage: str
+    parent: str = ""  # empty for top-level; "Trench XXX" if nested
+
+
 class CreatePgramJobRequest(BaseModel):
     job_id: str
     su_string: str = ""
