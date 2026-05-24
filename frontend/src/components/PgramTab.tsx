@@ -3,7 +3,8 @@ import {
   DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
-import { fetchJobs, updateStage } from '../api/pgram'
+import { fetchJobs, fetchIgnoredFolders, updateStage } from '../api/pgram'
+import type { IgnoredFolder } from '../api/pgram'
 import type { PgramJob } from '../types'
 import { PGRAM_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
@@ -14,6 +15,10 @@ import { toast } from './Toast'
 import { T } from '../tokens'
 
 const PGRAM_ORDER = ['to_be_processed', 'to_be_aligned', 'to_overnight', 'processed', 'uploaded_air']
+
+function stageLabel(key: string): string {
+  return PGRAM_STAGES.find((s) => s.key === key)?.label ?? key
+}
 
 function isValidPgramMove(from: string, to: string): boolean {
   if (from === to) return false
@@ -44,6 +49,8 @@ export function PgramTab({ refreshKey }: Props) {
   const [confirmState, setConfirmState] = useState<{
     message: string; jobId: string; targetStage: string
   } | null>(null)
+  const [ignoredFolders, setIgnoredFolders] = useState<IgnoredFolder[]>([])
+  const [ignoredDismissed, setIgnoredDismissed] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -57,6 +64,16 @@ export function PgramTab({ refreshKey }: Props) {
       toast('Failed to load jobs', 'error')
     } finally {
       setLoading(false)
+    }
+    try {
+      const ignored = await fetchIgnoredFolders()
+      const toKey = (fs: IgnoredFolder[]) => fs.map(f => `${f.stage}|${f.parent}|${f.name}`).sort().join(',')
+      setIgnoredFolders(prev => {
+        if (toKey(prev) !== toKey(ignored)) setIgnoredDismissed(false)
+        return ignored
+      })
+    } catch (err) {
+      console.error('Failed to load ignored folders:', err)
     }
   }, [])
 
@@ -156,6 +173,30 @@ export function PgramTab({ refreshKey }: Props) {
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
       </div>
 
+      {ignoredFolders.length > 0 && !ignoredDismissed && (
+        <div style={ignoredBannerStyle}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>
+              ⚠ {ignoredFolders.length} folder{ignoredFolders.length !== 1 ? 's' : ''} not shown — name does not match <code style={{ background: '#fde68a', padding: '0 4px', borderRadius: 3 }}>Pgram_Job_###</code>
+            </div>
+            <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
+              {ignoredFolders.slice(0, 8).map((f, i) => (
+                <span key={`${f.stage}|${f.parent}|${f.name}`}>
+                  <code style={{ background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>{f.name}</code>
+                  <span style={{ opacity: 0.7 }}> in {stageLabel(f.stage)}{f.parent && ` › ${f.parent}`}</span>
+                  {i < Math.min(ignoredFolders.length, 8) - 1 ? ', ' : ''}
+                </span>
+              ))}
+              {ignoredFolders.length > 8 && <span> … and {ignoredFolders.length - 8} more</span>}
+              <div style={{ marginTop: 4, opacity: 0.85 }}>
+                Rename to start with <code style={{ background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>Pgram_Job_</code> followed by digits (e.g. <code style={{ background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>Pgram_Job_123_SU17001</code>) and click ↻ Refresh.
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setIgnoredDismissed(true)} style={ignoredDismissBtn} title="Hide this warning">✕</button>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading jobs…</div>
       ) : (
@@ -232,6 +273,30 @@ const chipClear: React.CSSProperties = {
   color: T.chipText, padding: 0, fontSize: 12, lineHeight: 1,
   display: 'flex', alignItems: 'center',
 }
+const ignoredBannerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 12,
+  marginBottom: 16,
+  padding: '12px 16px',
+  background: '#fffbeb',
+  border: '1px solid #fcd34d',
+  borderRadius: 8,
+}
+
+const ignoredDismissBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: '#92400e',
+  fontSize: 16,
+  fontWeight: 700,
+  cursor: 'pointer',
+  padding: 4,
+  lineHeight: 1,
+  flexShrink: 0,
+}
+
 const refreshBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
   background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,

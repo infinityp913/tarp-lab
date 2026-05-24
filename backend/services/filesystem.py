@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from backend.config import LOG_PATH, get_config
-from backend.models import FILESYSTEM_STAGES, PgramJob, cet_now
+from backend.models import FILESYSTEM_STAGES, IgnoredFolder, PgramJob, cet_now
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,62 @@ def scan_filesystem() -> list[PgramJob]:
                         _log_skip(job_dir, "folder name does not match Pgram_Job_### pattern")
 
     return sorted(jobs, key=lambda j: j.numeric_id, reverse=True)
+
+
+def scan_ignored_folders() -> list[IgnoredFolder]:
+    """Walk every scanned stage directory and collect sub-folders whose names
+    do NOT match the Pgram_Job_### convention. These are silently skipped by
+    scan_filesystem(); surfacing them here lets the UI warn users about
+    misnamed folders (e.g. 'PreSU17001' instead of 'Pgram_Job_123_SU17001').
+
+    Mirrors scan_filesystem()'s heuristic: any non-job top-level folder is
+    treated as a trench container and descended into. A folder is only flagged
+    as misnamed if it has no job-named children (and doesn't start with
+    "Trench ", which is the known empty-container convention). Hidden folders
+    (starting with ".") and non-directory entries are skipped throughout.
+    """
+    cfg = get_config()
+    ignored: list[IgnoredFolder] = []
+
+    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed"):
+        folder_name = cfg.stage_folders[stage_key]
+        stage_root = Path(cfg.base_path) / folder_name
+        if not stage_root.exists():
+            continue
+
+        for entry in sorted(stage_root.iterdir()):
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            if JOB_PATTERN.match(entry.name):
+                continue
+            # "Trench "-prefixed folders are always containers (may be empty).
+            if entry.name.startswith("Trench "):
+                for sub in sorted(entry.iterdir()):
+                    if not sub.is_dir() or sub.name.startswith("."):
+                        continue
+                    if JOB_PATTERN.match(sub.name):
+                        continue
+                    ignored.append(IgnoredFolder(
+                        name=sub.name, stage=stage_key, parent=entry.name,
+                    ))
+                continue
+            # Other non-job folders: treat as a container if they hold any
+            # job-named children (consistent with scan_filesystem). Otherwise
+            # the folder itself is likely misnamed.
+            sub_dirs = [
+                s for s in entry.iterdir()
+                if s.is_dir() and not s.name.startswith(".")
+            ]
+            if any(JOB_PATTERN.match(s.name) for s in sub_dirs):
+                for sub in sorted(sub_dirs):
+                    if not JOB_PATTERN.match(sub.name):
+                        ignored.append(IgnoredFolder(
+                            name=sub.name, stage=stage_key, parent=entry.name,
+                        ))
+            else:
+                ignored.append(IgnoredFolder(name=entry.name, stage=stage_key))
+
+    return ignored
 
 
 def _job_path(base: Path, folder_name: str, trench: str, job_id: str, su_string: str) -> Path:

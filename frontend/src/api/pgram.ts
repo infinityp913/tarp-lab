@@ -6,6 +6,22 @@ export async function fetchJobs(): Promise<PgramJob[]> {
   return res.json()
 }
 
+export interface IgnoredFolder {
+  name: string
+  stage: string
+  parent: string  // empty for top-level; "Trench XXX" if nested
+}
+
+export async function fetchIgnoredFolders(): Promise<IgnoredFolder[]> {
+  try {
+    const res = await fetch('/api/pgram/ignored-folders')
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
+  }
+}
+
 export async function createJob(data: {
   job_id: string
   su_string: string
