@@ -25,6 +25,16 @@ def _log_skip(folder: Path, reason: str):
 
 
 def _parse_job_dir(job_dir: Path, stage_key: str) -> Optional[PgramJob]:
+    """
+    Parse a job folder name into a PgramJob object. Returns None if the name doesn't match the expected pattern.
+
+    Args:
+        job_dir (Path): Path object representing the job directory
+        stage_key (str): One of the FILESYSTEM_STAGES keys indicating the stage this job is in
+
+    Returns:
+        Optional[PgramJob]: A PgramJob object if parsing is successful, or None if the folder name doesn't match the expected pattern
+    """
     # Strip _MOVED_TO_MSI suffix before matching so it doesn't corrupt su_string
     name = job_dir.name
     if name.upper().endswith(_MSI_SUFFIX.upper()):
