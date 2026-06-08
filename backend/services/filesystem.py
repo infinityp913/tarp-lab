@@ -52,7 +52,7 @@ def scan_filesystem() -> list[PgramJob]:
     cfg = get_config()
     jobs: list[PgramJob] = []
 
-    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed"):
+    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air"):
         folder_name = cfg.stage_folders[stage_key]
         stage_root = Path(cfg.base_path) / folder_name
 
@@ -98,7 +98,7 @@ def scan_ignored_folders() -> list[IgnoredFolder]:
     cfg = get_config()
     ignored: list[IgnoredFolder] = []
 
-    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed"):
+    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air"):
         folder_name = cfg.stage_folders[stage_key]
         stage_root = Path(cfg.base_path) / folder_name
         if not stage_root.exists():
