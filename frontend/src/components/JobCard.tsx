@@ -1,6 +1,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { PgramJob } from '../types'
+import type { RunJobStatus } from '../api/pgram'
 import { openApp } from '../api/pgram'
 import { toast } from './Toast'
 import { T } from '../tokens'
@@ -8,13 +9,26 @@ import { T } from '../tokens'
 interface Props {
   job: PgramJob
   onClick: () => void
+  onAdvance?: () => void          // advance one stage forward; omit to hide the → arrow
+  nextStageLabel?: string         // tooltip for the → arrow, e.g. "Move to To Overnight"
+  runStatus?: RunJobStatus        // this job's state in the active run, if any
+  runStep?: string | null         // which script is running (alignment / overnight)
 }
 
-export function JobCard({ job, onClick }: Props) {
+const RUN_BADGE: Record<RunJobStatus, { icon: string; color: string; bg: string }> = {
+  queued:    { icon: '•',  color: '#cbd5e1', bg: '#33415555' },
+  running:   { icon: '⏳', color: '#fde68a', bg: '#78350f55' },
+  done:      { icon: '✓',  color: '#86efac', bg: '#14532d55' },
+  failed:    { icon: '✗',  color: '#fca5a5', bg: '#7f1d1d55' },
+  cancelled: { icon: '⊘',  color: '#cbd5e1', bg: '#33415555' },
+}
+
+export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, runStep }: Props) {
   const {
     attributes, listeners, setNodeRef, transform, isDragging,
   } = useDraggable({ id: job.job_id })
 
+  const inRun = runStatus === 'running' || runStatus === 'queued'
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     opacity: isDragging ? 0.4 : 1,
@@ -44,8 +58,33 @@ export function JobCard({ job, onClick }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <span style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{job.job_id}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {runStatus && (
+            <span
+              title={runStep ? `${runStatus} — ${runStep}` : runStatus}
+              style={{
+                fontSize: 10, fontWeight: 700, lineHeight: 1.4, borderRadius: 10,
+                padding: '1px 6px', color: RUN_BADGE[runStatus].color, background: RUN_BADGE[runStatus].bg,
+                display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap',
+              }}
+            >
+              {RUN_BADGE[runStatus].icon}{runStatus === 'running' && runStep ? ` ${runStep}` : ''}
+            </span>
+          )}
           {hasFieldNotes && (
             <span style={{ fontSize: 12, lineHeight: 1 }} title="Open for notes from field">📝</span>
+          )}
+          {onAdvance && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onAdvance() }}
+              disabled={inRun}
+              title={nextStageLabel ?? 'Move to next stage'}
+              style={{
+                border: 'none', background: 'transparent', cursor: inRun ? 'default' : 'pointer',
+                color: inRun ? T.textMuted : T.textSub, fontSize: 15, lineHeight: 1, padding: 0,
+                opacity: inRun ? 0.4 : 1,
+              }}
+            >→</button>
           )}
           <span style={{ color: T.textMuted, fontSize: 14, lineHeight: 1 }} title="Drag to move">⠿</span>
         </div>

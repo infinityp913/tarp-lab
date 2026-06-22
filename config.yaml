@@ -17,6 +17,16 @@ app_paths:
   cloudcompare: "C:\\Program Files\\CloudCompare\\CloudCompare.exe"
   qgis: ""
 
+# Headless Metashape pipeline scripts (run by the column "Run Alignment" / "Run Overnight" buttons).
+# These are invoked once per job folder: metashape.exe -r <script> <job_folder> [<extra arg>]
+scripts:
+  alignment: "C:\\Users\\Photogrammetry\\To Be Processed\\TARP 2026 Alignment Script v2 - Headless.py"
+  overnight: "C:\\Users\\Photogrammetry\\To Be Processed\\TARP 2026 Overnight Script - Headless.py"
+  # REQUIRED for alignment — the 2026 GCP reference CSV. Alignment refuses to run until this is set.
+  gcp_csv: ""
+  # Where the overnight script writes PLY / Orthos / DEM exports.
+  output_root: "C:/Users/Photogrammetry/GIS_2026"
+
 # Google Sheets spreadsheet ID (from the URL: /spreadsheets/d/{ID}/edit)
 gsheets_spreadsheet_id: "1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI"
 

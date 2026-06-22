@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
-import { fetchJobs, fetchIgnoredFolders, updateStage } from '../api/pgram'
-import type { IgnoredFolder } from '../api/pgram'
+import {
+  fetchJobs, fetchIgnoredFolders, updateStage,
+  startRun, getRunStatus, cancelRun, batchMove,
+} from '../api/pgram'
+import type { IgnoredFolder, RunKind, RunStatus, RunJob } from '../api/pgram'
 import type { PgramJob } from '../types'
 import { PGRAM_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
@@ -30,6 +33,11 @@ function isValidPgramMove(from: string, to: string): boolean {
   return ti < fi || ti === fi + 1
 }
 
+function nextStage(stage: string): string | null {
+  const i = PGRAM_ORDER.indexOf(stage)
+  return i >= 0 && i < PGRAM_ORDER.length - 1 ? PGRAM_ORDER[i + 1] : null
+}
+
 const STAGE_COLORS: Record<string, string> = {
   to_be_processed: '#94a3b8',
   to_be_aligned: '#f59e0b',
@@ -53,6 +61,9 @@ export function PgramTab({ refreshKey }: Props) {
   } | null>(null)
   const [ignoredFolders, setIgnoredFolders] = useState<IgnoredFolder[]>([])
   const [ignoredDismissed, setIgnoredDismissed] = useState(false)
+  const [run, setRun] = useState<RunStatus | null>(null)
+  const [batchConfirm, setBatchConfirm] = useState<{ from: string; to: string; count: number } | null>(null)
+  const pollingRef = useRef(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -82,6 +93,85 @@ export function PgramTab({ refreshKey }: Props) {
 
   useEffect(() => { load() }, [load, refreshKey])
 
+  // --- Batched run polling: follow an active run, refreshing cards as jobs advance live ---
+  const pollOnce = useCallback(async () => {
+    let status: RunStatus
+    try {
+      status = await getRunStatus()
+    } catch {
+      pollingRef.current = false
+      return
+    }
+    setRun(status.jobs.length ? status : null)
+    await load()  // reflect folders the backend just moved
+    if (status.active) {
+      window.setTimeout(() => { pollOnce() }, 2500)
+    } else {
+      pollingRef.current = false
+      const done = status.jobs.filter((j) => j.status === 'done').length
+      const failed = status.jobs.filter((j) => j.status === 'failed').length
+      if (status.jobs.length) {
+        toast(`Run finished — ${done} done${failed ? `, ${failed} failed` : ''}`, failed ? 'error' : 'success')
+      }
+    }
+  }, [load])
+
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return
+    pollingRef.current = true
+    pollOnce()
+  }, [pollOnce])
+
+  // Resume polling if a run is already in flight (e.g. after a page refresh)
+  useEffect(() => {
+    getRunStatus().then((s) => { if (s.active) startPolling() }).catch(() => {})
+  }, [startPolling])
+
+  async function handleRun(kind: RunKind) {
+    try {
+      const r = await startRun(kind)
+      toast(`Started ${kind} on ${r.count ?? 0} job${r.count === 1 ? '' : 's'}…`, 'info')
+      startPolling()
+    } catch (e: unknown) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  async function handleCancelRun() {
+    try {
+      await cancelRun()
+      toast('Stopping after the current job…', 'info')
+    } catch (e: unknown) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  function requestBatchMove(from: string, to: string) {
+    const count = jobs.filter((j) => j.stage === from).length
+    if (count === 0) { toast('No jobs to move in that column', 'info'); return }
+    setBatchConfirm({ from, to, count })
+  }
+
+  async function confirmBatchMove() {
+    if (!batchConfirm) return
+    const { from, to } = batchConfirm
+    setBatchConfirm(null)
+    try {
+      const r = await batchMove(from, to)
+      toast(
+        `Moved ${r.moved.length} job${r.moved.length === 1 ? '' : 's'}${r.failed.length ? `, ${r.failed.length} failed` : ''}`,
+        r.failed.length ? 'error' : 'success',
+      )
+      await load()
+    } catch (e: unknown) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const runByJob = new Map<string, RunJob>()
+  if (run) for (const j of run.jobs) runByJob.set(j.job_id, j)
+  const runActive = run?.active ?? false
+
   const trenches = [...new Set(jobs.map(j => j.trench).filter(Boolean))].sort()
 
   const filtered = trenchFilter === 'All Trenches'
@@ -106,14 +196,8 @@ export function PgramTab({ refreshKey }: Props) {
     void event
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
-    setDraggingJob(null)
-    const { active, over } = event
-    if (!over) return
-
-    const jobId = String(active.id)
-    const targetStage = resolveStage(String(over.id))
-
+  // Shared by drag-and-drop and the per-card → arrow.
+  async function requestMove(jobId: string, targetStage: string) {
     const job = jobs.find((j) => j.job_id === jobId)
     if (!job || job.stage === targetStage) return
 
@@ -135,6 +219,47 @@ export function PgramTab({ refreshKey }: Props) {
     if (result.job) {
       setJobs((prev) => prev.map((j) => j.job_id === jobId ? result.job! : j))
     }
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setDraggingJob(null)
+    const { active, over } = event
+    if (!over) return
+    await requestMove(String(active.id), resolveStage(String(over.id)))
+  }
+
+  function renderGutter(afterKey: string) {
+    if (afterKey === 'to_be_processed') {
+      return (
+        <ActionGutter>
+          <GutterButton label="Move all" sub="→ To Be Aligned" color="#f59e0b" disabled={runActive}
+            title="Move every job in To Be Processed to To Be Aligned (folders only)"
+            onClick={() => requestBatchMove('to_be_processed', 'to_be_aligned')} />
+        </ActionGutter>
+      )
+    }
+    if (afterKey === 'to_be_aligned') {
+      return (
+        <ActionGutter>
+          <GutterButton label="▶ Run" sub="Alignment" color="#8b5cf6" disabled={runActive}
+            title="Align every job in To Be Aligned, advancing each to To Overnight as it succeeds"
+            onClick={() => handleRun('alignment')} />
+          <GutterButton label="▶▶ Align +" sub="Overnight" color="#6366f1" disabled={runActive}
+            title="Align then overnight each job, advancing it all the way to Processed"
+            onClick={() => handleRun('both')} />
+        </ActionGutter>
+      )
+    }
+    if (afterKey === 'to_overnight') {
+      return (
+        <ActionGutter>
+          <GutterButton label="▶ Run" sub="Overnight" color="#22c55e" disabled={runActive}
+            title="Run the overnight pipeline on every job in To Overnight, advancing each to Processed"
+            onClick={() => handleRun('overnight')} />
+        </ActionGutter>
+      )
+    }
+    return null
   }
 
   async function handleConfirm() {
@@ -200,28 +325,42 @@ export function PgramTab({ refreshKey }: Props) {
         </div>
       )}
 
+      {run && run.jobs.length > 0 && (
+        <RunBanner run={run} onCancel={handleCancelRun} onDismiss={() => setRun(null)} />
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading jobs…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, alignItems: 'stretch' }}>
             {PGRAM_STAGES.map(({ key, label }) => (
-              <KanbanColumn
-                key={key}
-                id={key}
-                title={label}
-                items={byStage(key)}
-                count={byStage(key).length}
-                color={STAGE_COLORS[key]}
-                isValidTarget={draggingJob ? (draggingJob.stage === key ? 'source' : isValidPgramMove(draggingJob.stage, key)) : true}
-                renderCard={(job) => (
-                  <JobCard
-                    key={job.job_id}
-                    job={job}
-                    onClick={() => setDetailJob(job)}
-                  />
-                )}
-              />
+              <Fragment key={key}>
+                <KanbanColumn
+                  id={key}
+                  title={label}
+                  items={byStage(key)}
+                  count={byStage(key).length}
+                  color={STAGE_COLORS[key]}
+                  isValidTarget={draggingJob ? (draggingJob.stage === key ? 'source' : isValidPgramMove(draggingJob.stage, key)) : true}
+                  renderCard={(job) => {
+                    const rj = runByJob.get(job.job_id)
+                    const next = nextStage(job.stage)
+                    return (
+                      <JobCard
+                        key={job.job_id}
+                        job={job}
+                        onClick={() => setDetailJob(job)}
+                        onAdvance={next ? () => requestMove(job.job_id, next) : undefined}
+                        nextStageLabel={next ? `Move to ${stageLabel(next)}` : undefined}
+                        runStatus={rj?.status}
+                        runStep={rj?.step}
+                      />
+                    )
+                  }}
+                />
+                {renderGutter(key)}
+              </Fragment>
             ))}
           </div>
 
@@ -257,6 +396,84 @@ export function PgramTab({ refreshKey }: Props) {
           onConfirm={handleConfirm}
           onCancel={() => setConfirmState(null)}
         />
+      )}
+
+      {batchConfirm && (
+        <ConfirmationModal
+          message={`Move all ${batchConfirm.count} job${batchConfirm.count === 1 ? '' : 's'} from ${stageLabel(batchConfirm.from)} to ${stageLabel(batchConfirm.to)}? This only moves the folders — it does not run any script.`}
+          onConfirm={confirmBatchMove}
+          onCancel={() => setBatchConfirm(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ActionGutter({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8,
+      flexShrink: 0, padding: '0 2px', alignSelf: 'stretch',
+    }}>
+      {children}
+    </div>
+  )
+}
+
+function GutterButton({ label, sub, color, onClick, disabled, title }: {
+  label: string; sub: string; color: string; onClick: () => void; disabled?: boolean; title?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+        width: 92, padding: '8px 6px', borderRadius: 8, cursor: disabled ? 'not-allowed' : 'pointer',
+        border: `1px solid ${color}`, background: disabled ? `${color}14` : `${color}26`,
+        color, fontWeight: 700, lineHeight: 1.2, opacity: disabled ? 0.45 : 1,
+        transition: 'background 0.15s',
+      }}
+    >
+      <span style={{ fontSize: 12 }}>{label}</span>
+      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{sub}</span>
+    </button>
+  )
+}
+
+function RunBanner({ run, onCancel, onDismiss }: {
+  run: RunStatus; onCancel: () => void; onDismiss: () => void
+}) {
+  const total = run.jobs.length
+  const done = run.jobs.filter((j) => j.status === 'done').length
+  const failed = run.jobs.filter((j) => j.status === 'failed').length
+  const running = run.jobs.find((j) => j.status === 'running')
+  const pct = total ? Math.round(((done + failed) / total) * 100) : 0
+
+  return (
+    <div style={runBannerStyle}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+          {run.active
+            ? `Running ${run.kind}${run.cancel ? ' (stopping…)' : ''}`
+            : `Finished ${run.kind}`}
+          {' · '}{done}/{total} done{failed ? ` · ${failed} failed` : ''}
+          {running && <span style={{ color: T.textSub, fontWeight: 500 }}>{`  ·  now: ${running.job_id}${running.step ? ` (${running.step})` : ''}`}</span>}
+        </div>
+        <div style={{ height: 6, borderRadius: 3, background: T.badgeBg, overflow: 'hidden' }}>
+          <div style={{
+            width: `${pct}%`, height: '100%',
+            background: failed ? '#ef4444' : '#22c55e', transition: 'width 0.4s',
+          }} />
+        </div>
+      </div>
+      {run.active ? (
+        <button onClick={onCancel} disabled={run.cancel} style={runBannerBtn} title="Stop after the current job">
+          ⏹ Stop
+        </button>
+      ) : (
+        <button onClick={onDismiss} style={runBannerBtn} title="Dismiss">✕</button>
       )}
     </div>
   )
@@ -303,4 +520,16 @@ const ignoredDismissBtn: React.CSSProperties = {
 const refreshBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
   background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,
+}
+
+const runBannerStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 16,
+  marginBottom: 16, padding: '12px 16px',
+  background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+}
+
+const runBannerBtn: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
+  background: T.surface, cursor: 'pointer', fontSize: 13, color: T.textSub,
+  fontWeight: 600, flexShrink: 0,
 }

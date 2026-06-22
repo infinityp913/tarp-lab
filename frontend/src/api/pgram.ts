@@ -84,3 +84,65 @@ export async function openApp(jobId: string, app: string): Promise<void> {
     throw new Error(err.detail || res.statusText)
   }
 }
+
+export type RunKind = 'alignment' | 'overnight' | 'both'
+export type RunJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface RunJob {
+  job_id: string
+  su_string: string
+  trench: string
+  stage: string
+  status: RunJobStatus
+  step: string | null
+  error: string | null
+}
+
+export interface RunStatus {
+  active: boolean
+  kind: RunKind | null
+  started_at: string | null
+  cancel: boolean
+  jobs: RunJob[]
+}
+
+export async function startRun(kind: RunKind): Promise<{ started: boolean; count?: number }> {
+  const res = await fetch(`/api/pgram/run/${kind}`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
+
+export async function getRunStatus(): Promise<RunStatus> {
+  const res = await fetch('/api/pgram/run/status')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function cancelRun(): Promise<void> {
+  const res = await fetch('/api/pgram/run/cancel', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export interface BatchMoveResult {
+  moved: string[]
+  failed: { job_id: string; error: string }[]
+}
+
+export async function batchMove(fromStage: string, toStage: string): Promise<BatchMoveResult> {
+  const res = await fetch('/api/pgram/batch-move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from_stage: fromStage, to_stage: toStage }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
