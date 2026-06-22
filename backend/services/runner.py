@@ -211,6 +211,10 @@ def _run_script(script_kind: str, job: PgramJob) -> tuple[bool, str]:
     if folder is None or not folder.exists():
         return False, "Job folder not found on disk."
 
+    psx_files = list(folder.glob("*.psx"))
+    if not psx_files:
+        return False, "No .psx file found in job folder — nothing to process."
+
     if script_kind == "alignment":
         script = cfg.script_alignment
         args = [str(folder), cfg.gcp_csv]
