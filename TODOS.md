@@ -14,7 +14,7 @@ Done:
 
 Next steps:
 - [ ] Set `scripts.gcp_csv` in `config.yaml` once the 2026 GCP reference CSV exists — alignment/both buttons are blocked until then
-- [ ] Confirm the two headless `.py` paths in `config.yaml` `scripts:` match the lab machine, and that `metashape.exe` path is correct
+- [ x ] Confirm the two headless `.py` paths in `config.yaml` `scripts:` match the lab machine, and that `metashape.exe` path is correct
 - [ x ] Build + typecheck the frontend on a machine with node (`cd frontend && npm install && npm run build`) and copy `dist/` into `backend/static`
 - [ x ] Run the backend test suite (`python -m pytest tests/ -v`) on a machine with pytest installed
 - [ ] End-to-end test on the lab machine: run Overnight on a real `To Overnight` job, confirm it advances to `Processed` and exports land in `GIS_2026/`
