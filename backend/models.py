@@ -21,8 +21,8 @@ SU_STAGES = [
 FILESYSTEM_STAGES = {"to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air"}
 
 TRANSITION_DIALOGS: dict[tuple[str, str], str] = {
-    ("to_be_aligned", "to_overnight"): "Did the alignment script run successfully?",
-    ("to_overnight", "processed"): "Did the overnight script run succeed?",
+    ("to_be_aligned", "to_overnight"): "This will move the job folder to 'to_overnight'. It does not run the alignment script — you will need to run it manually.",
+    ("to_overnight", "processed"): "This will move the job folder to 'processed'. It does not run the overnight script — you will need to run it manually.",
 }
 
 
