@@ -63,6 +63,7 @@ export function PgramTab({ refreshKey }: Props) {
   const [ignoredDismissed, setIgnoredDismissed] = useState(false)
   const [run, setRun] = useState<RunStatus | null>(null)
   const [batchConfirm, setBatchConfirm] = useState<{ from: string; to: string; count: number } | null>(null)
+  const [moving, setMoving] = useState<{ to: string; count: number } | null>(null)
   const pollingRef = useRef(false)
 
   const sensors = useSensors(
@@ -154,8 +155,9 @@ export function PgramTab({ refreshKey }: Props) {
 
   async function confirmBatchMove() {
     if (!batchConfirm) return
-    const { from, to } = batchConfirm
+    const { from, to, count } = batchConfirm
     setBatchConfirm(null)
+    setMoving({ to, count })
     try {
       const r = await batchMove(from, to)
       toast(
@@ -165,6 +167,8 @@ export function PgramTab({ refreshKey }: Props) {
       await load()
     } catch (e: unknown) {
       toast((e as Error).message, 'error')
+    } finally {
+      setMoving(null)
     }
   }
 
@@ -232,7 +236,7 @@ export function PgramTab({ refreshKey }: Props) {
     if (afterKey === 'to_be_processed') {
       return (
         <ActionGutter>
-          <GutterButton label="Move all" sub="→ To Be Aligned" color="#f59e0b" disabled={runActive}
+          <GutterButton label="Move all" sub="→ To Be Aligned" color="#f59e0b" disabled={runActive || moving !== null}
             title="Move every job in To Be Processed to To Be Aligned (folders only)"
             onClick={() => requestBatchMove('to_be_processed', 'to_be_aligned')} />
         </ActionGutter>
@@ -323,6 +327,10 @@ export function PgramTab({ refreshKey }: Props) {
           </div>
           <button onClick={() => setIgnoredDismissed(true)} style={ignoredDismissBtn} title="Hide this warning">✕</button>
         </div>
+      )}
+
+      {moving && (
+        <MovingBanner count={moving.count} toLabel={stageLabel(moving.to)} />
       )}
 
       {run && run.jobs.length > 0 && (
@@ -442,6 +450,27 @@ function GutterButton({ label, sub, color, onClick, disabled, title }: {
   )
 }
 
+function MovingBanner({ count, toLabel }: { count: number; toLabel: string }) {
+  return (
+    <div style={runBannerStyle}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={spinnerStyle} />
+          Moving {count} job{count === 1 ? '' : 's'} to {toLabel}…
+          <span style={{ color: T.textSub, fontWeight: 500 }}>this may take a moment for large batches</span>
+        </div>
+        <div style={{ height: 6, borderRadius: 3, background: T.badgeBg, overflow: 'hidden', position: 'relative' }}>
+          <div style={indeterminateBarStyle} />
+        </div>
+      </div>
+      <style>{`
+        @keyframes pgramSpin { to { transform: rotate(360deg); } }
+        @keyframes pgramSlide { 0% { left: -40%; } 100% { left: 100%; } }
+      `}</style>
+    </div>
+  )
+}
+
 function RunBanner({ run, onCancel, onDismiss }: {
   run: RunStatus; onCancel: () => void; onDismiss: () => void
 }) {
@@ -526,6 +555,18 @@ const runBannerStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 16,
   marginBottom: 16, padding: '12px 16px',
   background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+}
+
+const spinnerStyle: React.CSSProperties = {
+  width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+  border: `2px solid ${T.border}`, borderTopColor: '#f59e0b',
+  display: 'inline-block', animation: 'pgramSpin 0.7s linear infinite',
+}
+
+const indeterminateBarStyle: React.CSSProperties = {
+  position: 'absolute', top: 0, bottom: 0, width: '40%',
+  background: '#f59e0b', borderRadius: 3,
+  animation: 'pgramSlide 1.1s ease-in-out infinite',
 }
 
 const runBannerBtn: React.CSSProperties = {
