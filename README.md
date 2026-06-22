@@ -37,6 +37,12 @@ stage_folders:
   processed:       Processed
   uploaded_air:    Uploaded to AIR
 
+# Current season — update both at the start of each season.
+season_year: 2026          # drives the "Season YYYY" label in the header
+current_year_trenches:     # inclusive trench range scanned/run for the season
+  min: 20000               # 2026 trenches run 20000–23000
+  max: 23000
+
 app_paths:
   metashape:    ""   # full path or leave blank
   cloudcompare: ""
@@ -94,6 +100,19 @@ Pgram_Job_696
 Pgram_Job_697_SU16014-16015
 Pgram_Job_698_SU016_MOVED_TO_MSI   ← scanned correctly; _MOVED_TO_MSI stripped before parse
 ```
+
+## Seasonal trench range
+
+Job scanning, the run buttons, and the misnamed-folder warning only operate on trench
+subfolders within `current_year_trenches` (set in `config.yaml`). For 2026 the trenches are
+`20000–23000`. Folders at the stage-root level (e.g. `__pycache__`, `Pre-2026`) and
+out-of-season trenches (e.g. `Trench 19000`) are ignored entirely — they won't show jobs,
+won't be run, and won't be flagged as misnamed.
+
+**At the start of each new season, update `season_year` and `current_year_trenches`.** The
+header shows *"Season YYYY"* (from `season_year`) next to a *"Trenches X–Y"* badge (from
+`current_year_trenches`). The range is inclusive on both ends; only `Trench NNNNN` folders
+are matched.
 
 ## Guarded stage transitions
 

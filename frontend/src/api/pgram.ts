@@ -22,6 +22,22 @@ export async function fetchIgnoredFolders(): Promise<IgnoredFolder[]> {
   }
 }
 
+export interface Season {
+  year: number
+  trench_min: number
+  trench_max: number
+}
+
+export async function fetchSeason(): Promise<Season | null> {
+  try {
+    const res = await fetch('/api/pgram/season')
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 export async function createJob(data: {
   job_id: string
   su_string: string

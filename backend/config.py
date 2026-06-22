@@ -47,6 +47,12 @@ class Config:
         self.script_overnight: str = scripts_cfg.get("overnight", "")
         self.gcp_csv: str = scripts_cfg.get("gcp_csv", "")
         self.output_root: str = scripts_cfg.get("output_root", "C:/Users/Photogrammetry/GIS_2026")
+        self.season_year: int = int(raw.get("season_year", 2026))
+        trench_cfg = raw.get("current_year_trenches", {}) or {}
+        self.current_year_trenches: tuple[int, int] = (
+            int(trench_cfg.get("min", 20000)),
+            int(trench_cfg.get("max", 23000)),
+        )
         self.gsheets_spreadsheet_id: str = raw.get("gsheets_spreadsheet_id", "")
         self.host: str = raw.get("host", "127.0.0.1")
         self.port: int = int(raw.get("port", 8000))

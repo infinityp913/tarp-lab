@@ -11,6 +11,18 @@ stage_folders:
   processed: "Processed"
   uploaded_air: "Uploaded to AIR"
 
+# Current season — update these two blocks once at the start of each season.
+# season_year drives the "Season YYYY" label in the dashboard header.
+season_year: 2026
+
+# Trench range (inclusive) for the season above. Only folders nested inside a "Trench NNNNN"
+# subfolder whose number falls in this range are scanned for jobs, run by the scripts, or
+# flagged as misnamed. Folders at the stage-root / trench level and out-of-range trenches
+# are ignored. For 2026: trenches 20000–23000.
+current_year_trenches:
+  min: 20000
+  max: 23000
+
 # Leave qgis blank for auto-discovery
 app_paths:
   metashape: "C:\\Program Files\\Agisoft\\Metashape Pro\\metashape.exe"

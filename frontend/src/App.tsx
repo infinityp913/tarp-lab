@@ -3,6 +3,8 @@ import { PgramTab } from './components/PgramTab'
 import { SUTab } from './components/SUTab'
 import { ToastContainer } from './components/Toast'
 import { pullFieldData, syncSheets } from './api/su'
+import { fetchSeason } from './api/pgram'
+import type { Season } from './api/pgram'
 import { T } from './tokens'
 
 type Tab = 'pgram' | 'su'
@@ -32,6 +34,7 @@ export function App() {
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
   const [pgramRefreshKey, setPgramRefreshKey] = useState(0)
+  const [season, setSeason] = useState<Season | null>(null)
   const [, forceUpdate] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -51,6 +54,9 @@ export function App() {
     const t = setInterval(fetchStatus, 60_000)
     return () => clearInterval(t)
   }, [fetchStatus])
+
+  // Season label + trench range — fetched once from config.yaml.
+  useEffect(() => { fetchSeason().then(setSeason) }, [])
 
   const handleReauth = useCallback(async () => {
     setReauthState('waiting')
@@ -120,7 +126,19 @@ export function App() {
             <div style={{ fontWeight: 800, fontSize: 16, color: T.text, letterSpacing: '-0.01em' }}>
               TARP Lab Dashboard (MSI Laptop)
             </div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 1 }}>Season 2026</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+              <span style={{ fontSize: 12, color: T.textMuted }}>
+                Season {season?.year ?? '…'}
+              </span>
+              {season && (
+                <span
+                  style={seasonTrenchBadge}
+                  title="Only these trenches are scanned, run, and flagged. Edit current_year_trenches in config.yaml to change."
+                >
+                  Trenches {season.trench_min}–{season.trench_max}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -227,6 +245,18 @@ const headerStyle: React.CSSProperties = {
   position: 'sticky',
   top: 0,
   zIndex: 100,
+}
+
+const seasonTrenchBadge: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  background: T.chipBg,
+  color: T.chipText,
+  borderRadius: 20,
+  padding: '1px 10px',
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'default',
 }
 
 const tabBarStyle: React.CSSProperties = {

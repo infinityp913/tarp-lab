@@ -11,6 +11,7 @@ from backend.models import (
     UpdateNotesRequest,
     cet_now,
 )
+from backend.config import get_config
 from backend.services import filesystem, gsheets, launcher, runner
 
 router = APIRouter(prefix="/api/pgram", tags=["pgram"])
@@ -48,6 +49,15 @@ def list_jobs():
 @router.get("/ignored-folders")
 def list_ignored_folders():
     return [f.model_dump() for f in filesystem.scan_ignored_folders()]
+
+
+@router.get("/season")
+def season():
+    """Current season: the header year label plus the inclusive trench range that job
+    scanning, the run buttons, and the misnamed-folder warning operate on."""
+    cfg = get_config()
+    lo, hi = cfg.current_year_trenches
+    return {"year": cfg.season_year, "trench_min": lo, "trench_max": hi}
 
 
 @router.post("/jobs", status_code=201)
