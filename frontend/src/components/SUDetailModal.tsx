@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { SUEntry } from '../types'
-import { updateNotes } from '../api/su'
+import { openPly, updateNotes } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
@@ -13,6 +13,18 @@ interface Props {
 export function SUDetailModal({ entry, onClose, onUpdated }: Props) {
   const [notes, setNotes] = useState(entry.notes)
   const [saving, setSaving] = useState(false)
+  const [plyLoading, setPlyLoading] = useState<'top' | 'bot' | null>(null)
+
+  async function handleOpenPly(type: 'top' | 'bot') {
+    setPlyLoading(type)
+    try {
+      await openPly(entry.su_id, type)
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to open PLY', 'error')
+    } finally {
+      setPlyLoading(null)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -74,6 +86,26 @@ export function SUDetailModal({ entry, onClose, onUpdated }: Props) {
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+          {entry.top_pgram && (
+            <button
+              onClick={() => handleOpenPly('top')}
+              disabled={plyLoading !== null}
+              style={btnSecondary}
+              title={`Open Top PLY (pgram ${entry.top_pgram}) in CloudCompare`}
+            >
+              {plyLoading === 'top' ? 'Opening…' : `Top PLY`}
+            </button>
+          )}
+          {entry.bot_pgram && (
+            <button
+              onClick={() => handleOpenPly('bot')}
+              disabled={plyLoading !== null}
+              style={btnSecondary}
+              title={`Open Bottom PLY (pgram ${entry.bot_pgram}) in CloudCompare`}
+            >
+              {plyLoading === 'bot' ? 'Opening…' : `Bot PLY`}
+            </button>
+          )}
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={btnPrimary}>
             {saving ? 'Saving…' : 'Save Notes'}

@@ -120,6 +120,49 @@ def cet_now() -> str:
     return f"{dt.day} {dt.strftime('%b %Y, %H:%M')}"
 
 
+def expand_su_range(su_string: str) -> list[str]:
+    """Expand SU range strings to a flat list of SU ID strings.
+
+    Handles:
+      "21015-17"        → ["21015", "21016", "21017"]  (compact suffix range)
+      "21015-21017"     → ["21015", "21016", "21017"]  (full range)
+      "21015, 21020"    → ["21015", "21020"]            (comma list)
+      "SU21015"         → ["21015"]                    (SU prefix stripped)
+      mixed of the above
+    """
+    results: list[str] = []
+    for segment in su_string.replace(";", ",").split(","):
+        segment = segment.strip()
+        if segment.upper().startswith("SU"):
+            segment = segment[2:].strip()
+        if not segment:
+            continue
+        if "-" in segment:
+            parts = segment.split("-", 1)
+            start_str, end_str = parts[0].strip(), parts[1].strip()
+            if start_str.isdigit() and end_str.isdigit():
+                start = int(start_str)
+                if len(end_str) < len(start_str):
+                    # Compact range: "21015-17" → prefix "210", end 17 → 21017
+                    prefix = start_str[: len(start_str) - len(end_str)]
+                    end = int(prefix + end_str)
+                else:
+                    end = int(end_str)
+                results.extend(str(n) for n in range(start, end + 1))
+        elif segment.isdigit():
+            results.append(segment)
+    return results
+
+
+def trench_from_su_id(su_id: str) -> str:
+    """Infer trench number string from SU ID. '21015' → '21000'."""
+    try:
+        n = int(su_id)
+        return str((n // 1000) * 1000)
+    except ValueError:
+        return ""
+
+
 TRENCHES = [
     "Trench 20000",
     "Trench 21000",

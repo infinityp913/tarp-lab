@@ -60,6 +60,27 @@ export async function updateNotes(suId: string, notes: string): Promise<void> {
   }
 }
 
+export async function provisionFromPly(): Promise<{
+  created: object[]
+  skipped: { su_id?: string; pgram?: number; reason: string }[]
+  ply_count: number
+}> {
+  const res = await fetch('/api/su/provision-from-ply', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
+
+export async function openPly(suId: string, pgramType: 'top' | 'bot'): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-ply/${pgramType}`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function pullFieldData(): Promise<{ total: number; with_field_data: number }> {
   const res = await fetch('/api/sheets/pull', { method: 'POST' })
   if (!res.ok) {

@@ -9,6 +9,9 @@ from backend.models import (
     cet_now,
 )
 from backend.services import gsheets
+from backend.services.filesystem import find_ply_for_pgram
+from backend.services.launcher import launch_cloudcompare_with_ply
+from backend.services.volume import provision_from_ply as _provision_from_ply
 
 router = APIRouter(prefix="/api/su", tags=["su"])
 
@@ -34,6 +37,40 @@ def create_entry(req: CreateSUEntryRequest):
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Google Sheets unavailable: {e}")
     return entry.model_dump()
+
+
+@router.post("/provision-from-ply")
+def provision_from_ply():
+    """Scan PLY directory and auto-create volume cards for SUs without one."""
+    return _provision_from_ply()
+
+
+@router.post("/entries/{su_id}/open-ply/{pgram_type}")
+def open_ply(su_id: str, pgram_type: str):
+    """Open the PLY file for this SU's top or bottom pgram model in CloudCompare.
+
+    pgram_type must be "top" or "bot".
+    """
+    if pgram_type not in ("top", "bot"):
+        raise HTTPException(status_code=422, detail="pgram_type must be 'top' or 'bot'")
+
+    rows = gsheets.get_su_rows()
+    entry_data = next((r for r in rows if r["su_id"] == su_id), None)
+    if not entry_data:
+        raise HTTPException(status_code=404, detail=f"SU {su_id} not found")
+
+    pgram_val = str(entry_data.get("top_pgram" if pgram_type == "top" else "bot_pgram", ""))
+    if not pgram_val.isdigit():
+        raise HTTPException(status_code=422, detail=f"No valid {pgram_type} pgram set for this SU")
+
+    ply_path = find_ply_for_pgram(int(pgram_val))
+    if not ply_path:
+        raise HTTPException(status_code=404, detail=f"No PLY file found for pgram {pgram_val}")
+
+    result = launch_cloudcompare_with_ply(ply_path)
+    if not result.get("launched"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to open PLY"))
+    return result
 
 
 @router.put("/entries/{su_id}/stage")

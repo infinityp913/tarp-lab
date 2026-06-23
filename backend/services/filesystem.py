@@ -237,6 +237,42 @@ def move_to_msi(job: PgramJob) -> Path:
     return dest
 
 
+PLY_JOB_PATTERN = re.compile(r"^Pgram_Job_(\d+)", re.IGNORECASE)
+
+
+def scan_ply_files() -> list[dict]:
+    """Scan {overnight_output_assets_root}/PLY/ for PLY files named Pgram_Job_NNN*.ply.
+
+    Returns list of dicts with keys: pgram_num (int), filename (str), path (str).
+    """
+    cfg = get_config()
+    ply_dir = Path(cfg.overnight_output_assets_root) / "PLY"
+    if not ply_dir.exists():
+        return []
+    results = []
+    for f in ply_dir.iterdir():
+        if not f.is_file() or f.suffix.lower() != ".ply":
+            continue
+        m = PLY_JOB_PATTERN.match(f.stem)
+        if not m:
+            continue
+        results.append({"pgram_num": int(m.group(1)), "filename": f.name, "path": str(f)})
+    return results
+
+
+def find_ply_for_pgram(pgram_num: int) -> Optional[Path]:
+    """Return the first PLY file in {overnight_output_assets_root}/PLY/ whose name starts with Pgram_Job_{pgram_num}."""
+    cfg = get_config()
+    ply_dir = Path(cfg.overnight_output_assets_root) / "PLY"
+    if not ply_dir.exists():
+        return None
+    prefix_pattern = re.compile(rf"^Pgram_Job_{pgram_num}", re.IGNORECASE)
+    for f in ply_dir.iterdir():
+        if f.is_file() and f.suffix.lower() == ".ply" and prefix_pattern.match(f.stem):
+            return f
+    return None
+
+
 def scan_subfolders(parent_path: Optional[str] = None) -> list[str]:
     """Return trench subfolder names within base_path (for the Create Job picker)."""
     cfg = get_config()
