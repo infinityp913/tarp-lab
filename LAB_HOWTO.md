@@ -52,7 +52,23 @@ The dashboard reads photogrammetry jobs from a fixed folder structure on this ma
    ```
    If your folder is in a different location, update this line to match before continuing.
 
-Inside each stage folder, jobs live in **trench subfolders** named after the trench (e.g. `Trench_16000`), and individual job folders follow the pattern `Pgram_Job_###_<SU_string>` (e.g. `Pgram_Job_696_SU16014`). The dashboard creates new job folders for you automatically — you only need the five stage folders to exist.
+Inside each stage folder, jobs live in **trench subfolders** named after the trench (e.g. `Trench 20000`), and individual job folders follow the pattern `Pgram_Job_###_<SU_string>` (e.g. `Pgram_Job_696_SU20014`). The dashboard creates new job folders for you automatically — you only need the five stage folders to exist.
+
+### Step 1b — Set this season's year and trench numbers
+
+The dashboard only looks at trenches for the **current season**. This keeps old trenches from previous years off the board and out of the scripts.
+
+1. In the same `config.yaml`, find the `season_year` line and the `current_year_trenches` lines:
+   ```
+   season_year: 2026
+   current_year_trenches:
+     min: 20000   # 2026 trenches run 20000–23000
+     max: 23000
+   ```
+2. Set `season_year` to the current year, and set `min`/`max` to this season's trench range (inclusive). For **2026**, the values above are correct.
+3. Save the file. When the dashboard is running, the header shows **"Season 2026"** next to a **"Trenches 20000–23000"** badge confirming the active range.
+
+> Anything outside this range — folders sitting loose in a stage folder (like `Pre-2026` or `__pycache__`) and old trenches (like `Trench 19000`) — is ignored. It won't appear on the board, won't be run by the scripts, and won't trigger the "misnamed folder" warning.
 
 ### Step 2 — Get access to the Google Sheet
 
@@ -88,6 +104,8 @@ This tab shows all photogrammetry jobs as a kanban board.
 **Lab notes:** click a card to open it. You can add your own notes — they save automatically.
 
 **Filtering by trench:** use the trench dropdown at the top-left to narrow the board to one trench.
+
+**Current season:** the header shows **"Season YYYY"** next to a **"Trenches X–Y"** badge — which trenches the board is scanning this season. If it's wrong, update `season_year` / `current_year_trenches` in `config.yaml` (see *Starting a new season* below).
 
 **Creating a new job:** click **+ New Job** at the top. Fill in the job number and SU string — the folder will be created automatically on disk.
 
@@ -130,12 +148,32 @@ If a red warning banner appears at the top saying the Google Sheets token was re
 
 ---
 
+## Starting a new season
+
+When a new season begins and you move to a new set of trenches, update the dashboard so it scans the right ones:
+
+1. Close the dashboard (close the black command window).
+2. Open `config.yaml` in the `tarp-lab` folder.
+3. Change `season_year` to the new year and set `current_year_trenches` `min`/`max` to the new season's trench range (inclusive):
+   ```
+   season_year: 2027
+   current_year_trenches:
+     min: 24000
+     max: 27000
+   ```
+4. Save the file and start the dashboard again. The header will show the new **"Season YYYY"** label and **"Trenches X–Y"** badge.
+
+That's the only change needed — the previous season's trenches stay on disk but drop off the board automatically.
+
+---
+
 ## Troubleshooting
 
 | Problem | What to check |
 |---|---|
 | Dashboard doesn't open | Make sure the black command window is still open. Try going to http://127.0.0.1:8000 manually. |
-| No jobs showing on the board | The stage folders may not be found. Check that the `tarp-lab` folder is configured correctly (ask Ananth). |
+| No jobs showing on the board | The stage folders may not be found. Check that the `tarp-lab` folder is configured correctly (ask Ananth). Also check the **"Working on trenches X–Y"** badge — if this season's trenches aren't in that range, update `current_year_trenches` (see *Starting a new season*). |
+| Jobs in an old trench missing | Old trenches outside `current_year_trenches` are hidden on purpose. Widen the range in `config.yaml` if you need them back. |
 | Sync failed (red button) | Check that the machine is connected to the internet. It will retry automatically on the next 5-minute cycle. |
 | Red auth banner | Click **↻ Re-authenticate** and sign in again. |
 | Folder won't move | Close the job in Metashape first — Windows locks the folder while it's open. |

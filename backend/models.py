@@ -21,8 +21,8 @@ SU_STAGES = [
 FILESYSTEM_STAGES = {"to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air"}
 
 TRANSITION_DIALOGS: dict[tuple[str, str], str] = {
-    ("to_be_aligned", "to_overnight"): "Did the alignment script run successfully?",
-    ("to_overnight", "processed"): "Did the overnight script run succeed?",
+    ("to_be_aligned", "to_overnight"): "This only moves the job folder to 'To Overnight'. It does NOT run the alignment script — use the 'Run Alignment' button between the columns for that.",
+    ("to_overnight", "processed"): "This only moves the job folder to 'Processed'. It does NOT run the overnight script — use the 'Run Overnight' button between the columns for that.",
 }
 
 
@@ -80,6 +80,11 @@ class SUEntry(BaseModel):
 class StageTransitionRequest(BaseModel):
     target_stage: str
     confirmed: bool = False
+
+
+class BatchMoveRequest(BaseModel):
+    from_stage: str
+    to_stage: str
 
 
 class IgnoredFolder(BaseModel):

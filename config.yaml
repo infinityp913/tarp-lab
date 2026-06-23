@@ -11,11 +11,33 @@ stage_folders:
   processed: "Processed"
   uploaded_air: "Uploaded to AIR"
 
+# Current season — update these two blocks once at the start of each season.
+# season_year drives the "Season YYYY" label in the dashboard header.
+season_year: 2026
+
+# Trench range (inclusive) for the season above. Only folders nested inside a "Trench NNNNN"
+# subfolder whose number falls in this range are scanned for jobs, run by the scripts, or
+# flagged as misnamed. Folders at the stage-root / trench level and out-of-range trenches
+# are ignored. For 2026: trenches 20000–23000.
+current_year_trenches:
+  min: 20000
+  max: 23000
+
 # Leave qgis blank for auto-discovery
 app_paths:
   metashape: "C:\\Program Files\\Agisoft\\Metashape Pro\\metashape.exe"
   cloudcompare: "C:\\Program Files\\CloudCompare\\CloudCompare.exe"
   qgis: ""
+
+# Headless Metashape pipeline scripts (run by the column "Run Alignment" / "Run Overnight" buttons).
+# These are invoked once per job folder: metashape.exe -r <script> <job_folder> [<extra arg>]
+scripts:
+  alignment: "C:\\Users\\Photogrammetry\\To Be Processed\\TARP 2026 Alignment Script v2 - Headless.py"
+  overnight: "C:\\Users\\Photogrammetry\\To Be Processed\\TARP 2026 Overnight Script - Headless.py"
+  # REQUIRED for alignment — the 2026 GCP reference CSV. Alignment refuses to run until this is set.
+  gcp_csv: "C:\\Users\\Photogrammetry\\To Be Processed\\GCPs 2026 20000-23000 EPSG32632 06-15-2026.csv"
+  # Where the overnight script writes PLY / Orthos / DEM exports.
+  output_root: "C:/Users/Photogrammetry/GIS_2026"
 
 # Google Sheets spreadsheet ID (from the URL: /spreadsheets/d/{ID}/edit)
 gsheets_spreadsheet_id: "1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI"

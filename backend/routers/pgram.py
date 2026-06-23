@@ -2,14 +2,17 @@ from fastapi import APIRouter, HTTPException
 
 from backend.models import (
     FILESYSTEM_STAGES,
+    PGRAM_STAGES,
     TRANSITION_DIALOGS,
+    BatchMoveRequest,
     CreatePgramJobRequest,
     PgramJob,
     StageTransitionRequest,
     UpdateNotesRequest,
     cet_now,
 )
-from backend.services import filesystem, gsheets, launcher
+from backend.config import get_config
+from backend.services import filesystem, gsheets, launcher, runner
 
 router = APIRouter(prefix="/api/pgram", tags=["pgram"])
 
@@ -46,6 +49,15 @@ def list_jobs():
 @router.get("/ignored-folders")
 def list_ignored_folders():
     return [f.model_dump() for f in filesystem.scan_ignored_folders()]
+
+
+@router.get("/season")
+def season():
+    """Current season: the header year label plus the inclusive trench range that job
+    scanning, the run buttons, and the misnamed-folder warning operate on."""
+    cfg = get_config()
+    lo, hi = cfg.current_year_trenches
+    return {"year": cfg.season_year, "trench_min": lo, "trench_max": hi}
 
 
 @router.post("/jobs", status_code=201)
@@ -123,6 +135,61 @@ def update_notes(job_id: str, req: UpdateNotesRequest):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
+
+
+@router.post("/batch-move")
+def batch_move(req: BatchMoveRequest):
+    """Move every job in from_stage to to_stage (folder moves only — no scripts).
+    Backs the 'Move all → To Be Aligned' button. Only one step forward is allowed."""
+    try:
+        fi = PGRAM_STAGES.index(req.from_stage)
+        ti = PGRAM_STAGES.index(req.to_stage)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Unknown stage.")
+    if ti != fi + 1:
+        raise HTTPException(status_code=400, detail="Batch move must advance exactly one stage.")
+
+    jobs = [j for j in filesystem.scan_filesystem() if j.stage == req.from_stage]
+    moved: list[str] = []
+    failed: list[dict] = []
+    for job in jobs:
+        try:
+            filesystem.move_job(job, req.to_stage)
+            try:
+                gsheets.update_pgram_stage(job.job_id, req.to_stage)
+            except Exception:
+                pass
+            moved.append(job.job_id)
+        except Exception as e:
+            failed.append({"job_id": job.job_id, "error": str(e)})
+    return {"moved": moved, "failed": failed}
+
+
+@router.post("/run/{kind}")
+def start_run(kind: str):
+    """Start a batched, per-job Metashape run (kind: alignment | overnight | both)."""
+    if kind not in ("alignment", "overnight", "both"):
+        raise HTTPException(status_code=400, detail=f"Unknown run type: {kind}")
+    result = runner.start_run(kind)
+    if not result.get("started"):
+        # 409 when a run is already active, 400/422-ish otherwise — use 409 for the busy case.
+        msg = result.get("error", "Failed to start run")
+        status = 409 if "already in progress" in msg else 400
+        raise HTTPException(status_code=status, detail=msg)
+    return result
+
+
+@router.get("/run/status")
+def run_status():
+    return runner.get_status()
+
+
+@router.post("/run/cancel")
+def run_cancel():
+    result = runner.cancel()
+    if not result.get("cancelled"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Nothing to cancel"))
+    return result
 
 
 @router.post("/jobs/{job_id}/open/{app}")

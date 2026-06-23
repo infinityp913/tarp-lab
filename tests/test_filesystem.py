@@ -34,6 +34,7 @@ def use_tmp_base(tmp_path, monkeypatch):
     cfg.metashape_path = ""
     cfg.cloudcompare_path = ""
     cfg.qgis_path = ""
+    cfg.current_year_trenches = (20000, 23000)
     cfg.gsheets_spreadsheet_id = ""
     cfg.host = "127.0.0.1"
     cfg.port = 8000
@@ -96,16 +97,23 @@ def _mk_stage(tmp_path, stage_folder, trench, job_name):
 
 
 def test_scan_finds_jobs(tmp_path, use_tmp_base):
-    _mk_stage(tmp_path, "To Be Processed", "Trench 16000", "Pgram_Job_001_SU010")
-    _mk_stage(tmp_path, "Processed", "Trench 17000", "Pgram_Job_002")
+    _mk_stage(tmp_path, "To Be Processed", "Trench 20000", "Pgram_Job_001_SU010")
+    _mk_stage(tmp_path, "Processed", "Trench 21000", "Pgram_Job_002")
     jobs = scan_filesystem()
     ids = {j.job_id for j in jobs}
     assert "Pgram_Job_001" in ids
     assert "Pgram_Job_002" in ids
 
 
+def test_scan_ignores_pre_2026_trenches(tmp_path, use_tmp_base):
+    # Jobs in out-of-range (pre-2026) trenches are not scanned at all.
+    _mk_stage(tmp_path, "To Be Processed", "Trench 19000", "Pgram_Job_900_SU19001")
+    _mk_stage(tmp_path, "Processed", "Trench 16000", "Pgram_Job_901")
+    assert scan_filesystem() == []
+
+
 def test_scan_ignores_msi_suffix_in_su_string(tmp_path, use_tmp_base):
-    _mk_stage(tmp_path, "Processed", "Trench 16000", f"Pgram_Job_010_SU099{_MSI_SUFFIX}")
+    _mk_stage(tmp_path, "Processed", "Trench 20000", f"Pgram_Job_010_SU099{_MSI_SUFFIX}")
     jobs = scan_filesystem()
     assert len(jobs) == 1
     assert jobs[0].su_string == "SU099"
@@ -206,57 +214,49 @@ def test_scan_ignored_valid_jobs_not_flagged(tmp_path, use_tmp_base):
 
 
 def test_scan_ignored_trench_container_valid_children_not_flagged(tmp_path, use_tmp_base):
-    (tmp_path / "To Be Processed" / "Trench 17000" / "Pgram_Job_003").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "Pgram_Job_003").mkdir(parents=True)
     assert scan_ignored_folders() == []
 
 
 def test_scan_ignored_trench_container_misnamed_child_flagged(tmp_path, use_tmp_base):
-    (tmp_path / "To Be Processed" / "Trench 17000" / "PreSU17001").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "PreSU20001").mkdir(parents=True)
     result = scan_ignored_folders()
     assert len(result) == 1
-    assert result[0].name == "PreSU17001"
+    assert result[0].name == "PreSU20001"
     assert result[0].stage == "to_be_processed"
-    assert result[0].parent == "Trench 17000"
+    assert result[0].parent == "Trench 20000"
 
 
-def test_scan_ignored_non_trench_with_job_children_treated_as_container(tmp_path, use_tmp_base):
-    # A folder that doesn't start with "Trench " but contains a valid job subfolder
-    # should be treated as a container (not flagged), and only its misnamed children flagged.
-    container = tmp_path / "Processed" / "TR17000"
-    (container / "Pgram_Job_010").mkdir(parents=True)
-    (container / "BadFolder").mkdir(parents=True)
-    result = scan_ignored_folders()
-    names = [r.name for r in result]
-    assert "TR17000" not in names
-    assert "BadFolder" in names
-    assert result[0].parent == "TR17000"
+def test_scan_ignored_out_of_range_trench_not_flagged(tmp_path, use_tmp_base):
+    # A trench outside the current-year range (20000–23000) is ignored entirely,
+    # including its misnamed children.
+    (tmp_path / "To Be Aligned" / "Trench 19000" / "Trench_19000_Final").mkdir(parents=True)
+    assert scan_ignored_folders() == []
 
 
-def test_scan_ignored_misnamed_top_level_no_job_children(tmp_path, use_tmp_base):
-    # A folder that doesn't start with "Trench " and has no job children → flagged itself.
-    (tmp_path / "To Be Processed" / "PreSU17001").mkdir(parents=True)
-    result = scan_ignored_folders()
-    assert len(result) == 1
-    assert result[0].name == "PreSU17001"
-    assert result[0].parent == ""
+def test_scan_ignored_loose_stage_root_folders_not_flagged(tmp_path, use_tmp_base):
+    # Loose folders at the stage-root / trench level (not "Trench NNNNN") are ignored.
+    (tmp_path / "To Be Processed" / "__pycache__").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Pre-2026").mkdir(parents=True)
+    (tmp_path / "Processed" / "Pre-2026").mkdir(parents=True)
+    assert scan_ignored_folders() == []
 
 
 def test_scan_ignored_hidden_folders_skipped(tmp_path, use_tmp_base):
     stage = tmp_path / "To Be Processed"
-    stage.mkdir()
-    (stage / ".DS_Store_folder").mkdir()
+    (stage / "Trench 20000" / ".DS_Store_folder").mkdir(parents=True)
     assert scan_ignored_folders() == []
 
 
 def test_scan_ignored_returns_ignored_folder_model(tmp_path, use_tmp_base):
     from backend.models import IgnoredFolder
-    (tmp_path / "To Be Processed" / "BadName").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "BadName").mkdir(parents=True)
     result = scan_ignored_folders()
     assert len(result) == 1
     assert isinstance(result[0], IgnoredFolder)
     assert result[0].name == "BadName"
     assert result[0].stage == "to_be_processed"
-    assert result[0].parent == ""
+    assert result[0].parent == "Trench 20000"
 
 
 # ─── scan_subfolders ─────────────────────────────────────────────────────────
@@ -278,60 +278,57 @@ def test_scan_subfolders_excludes_job_dirs(tmp_path, use_tmp_base):
 
 # ─── scan_ignored_folders ────────────────────────────────────────────────────
 
-def test_ignored_top_level_misnamed(tmp_path, use_tmp_base):
-    # A misnamed folder at stage root (no valid job children) → flagged, no parent
-    (tmp_path / "To Be Processed" / "PreSU17001").mkdir(parents=True)
-    result = scan_ignored_folders()
-    assert any(f.name == "PreSU17001" and f.stage == "to_be_processed" and f.parent == "" for f in result)
+def test_ignored_top_level_not_flagged(tmp_path, use_tmp_base):
+    # A misnamed folder at stage root (not inside a trench) is ignored
+    (tmp_path / "To Be Processed" / "PreSU20001").mkdir(parents=True)
+    assert scan_ignored_folders() == []
 
 
 def test_ignored_nested_in_trench(tmp_path, use_tmp_base):
-    # Misnamed folder inside a Trench container → flagged with parent set
-    (tmp_path / "To Be Processed" / "Trench 17000" / "bad_name").mkdir(parents=True)
+    # Misnamed folder inside a current-year Trench container → flagged with parent set
+    (tmp_path / "To Be Processed" / "Trench 21000" / "bad_name").mkdir(parents=True)
     result = scan_ignored_folders()
-    assert any(f.name == "bad_name" and f.stage == "to_be_processed" and f.parent == "Trench 17000" for f in result)
+    assert any(f.name == "bad_name" and f.stage == "to_be_processed" and f.parent == "Trench 21000" for f in result)
 
 
 def test_valid_job_not_flagged(tmp_path, use_tmp_base):
     # A valid Pgram_Job_### folder is never in the ignored list
-    (tmp_path / "To Be Processed" / "Trench 17000" / "Pgram_Job_001_SU17001").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "Pgram_Job_001_SU20001").mkdir(parents=True)
     result = scan_ignored_folders()
     assert not any(f.name.startswith("Pgram_Job_") for f in result)
 
 
 def test_trench_container_with_valid_children_not_flagged(tmp_path, use_tmp_base):
     # A Trench folder itself is never flagged, only its misnamed children are
-    (tmp_path / "To Be Processed" / "Trench 17000" / "Pgram_Job_002_SU17002").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "Pgram_Job_002_SU20002").mkdir(parents=True)
     result = scan_ignored_folders()
-    assert not any(f.name == "Trench 17000" for f in result)
+    assert not any(f.name == "Trench 20000" for f in result)
 
 
-def test_non_trench_container_with_job_children_not_flagged(tmp_path, use_tmp_base):
-    # A folder that doesn't start with "Trench " but contains valid job children
-    # is treated as a container — it is not flagged, only its misnamed children are
-    container = tmp_path / "To Be Processed" / "Raw Images"
-    (container / "Pgram_Job_010_SU17010").mkdir(parents=True)
-    (container / "bad_folder").mkdir()
-    result = scan_ignored_folders()
-    assert not any(f.name == "Raw Images" for f in result)
-    assert any(f.name == "bad_folder" and f.parent == "Raw Images" for f in result)
+def test_boundary_trenches_included(tmp_path, use_tmp_base):
+    # The range is inclusive on both ends (20000 and 23000).
+    (tmp_path / "To Be Processed" / "Trench 20000" / "bad_lo").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 23000" / "bad_hi").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 24000" / "bad_over").mkdir(parents=True)
+    names = {f.name for f in scan_ignored_folders()}
+    assert names == {"bad_lo", "bad_hi"}
 
 
 def test_hidden_folders_not_flagged(tmp_path, use_tmp_base):
-    # Hidden folders (.DS_Store, .Trashes) are silently skipped
-    (tmp_path / "To Be Processed" / ".DS_Store_folder").mkdir(parents=True)
+    # Hidden folders (.DS_Store, .Trashes) inside a trench are silently skipped
+    (tmp_path / "To Be Processed" / "Trench 20000" / ".DS_Store_folder").mkdir(parents=True)
     result = scan_ignored_folders()
     assert not any(f.name.startswith(".") for f in result)
 
 
 def test_ignored_folders_empty_when_all_valid(tmp_path, use_tmp_base):
-    (tmp_path / "To Be Processed" / "Trench 16000" / "Pgram_Job_100_SU16100").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "Pgram_Job_100_SU20100").mkdir(parents=True)
     assert scan_ignored_folders() == []
 
 
 def test_ignored_folders_multiple_stages(tmp_path, use_tmp_base):
-    (tmp_path / "To Be Processed" / "bad_a").mkdir(parents=True)
-    (tmp_path / "Processed" / "bad_b").mkdir(parents=True)
+    (tmp_path / "To Be Processed" / "Trench 20000" / "bad_a").mkdir(parents=True)
+    (tmp_path / "Processed" / "Trench 21000" / "bad_b").mkdir(parents=True)
     result = scan_ignored_folders()
     names = {f.name for f in result}
     assert "bad_a" in names

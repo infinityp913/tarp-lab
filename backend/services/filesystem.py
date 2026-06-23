@@ -11,7 +11,28 @@ logger = logging.getLogger(__name__)
 
 # Folder must be Pgram_Job_### or Pgram_Job_###_anything
 JOB_PATTERN = re.compile(r"^Pgram_Job_(\d+)(?:_(.+))?$", re.IGNORECASE)
+# Matches a trench container folder, e.g. "Trench 20000".
+TRENCH_PATTERN = re.compile(r"^Trench\s+(\d+)$", re.IGNORECASE)
 _MSI_SUFFIX = "_MOVED_TO_MSI"
+
+
+def _trench_number(name: str) -> Optional[int]:
+    """Return the numeric trench id for a 'Trench NNNNN' folder, or None if it isn't one."""
+    m = TRENCH_PATTERN.match(name.strip())
+    return int(m.group(1)) if m else None
+
+
+def _is_current_year_trench(name: str) -> bool:
+    """True if `name` is a 'Trench NNNNN' folder within the configured current-year range.
+
+    Out-of-range (e.g. pre-2026) trenches and non-trench folders return False, so they are
+    excluded from job scanning, the run buttons, and the misnamed-folder warning alike.
+    """
+    num = _trench_number(name)
+    if num is None:
+        return False
+    lo, hi = get_config().current_year_trenches
+    return lo <= num <= hi
 
 
 def _log_skip(folder: Path, reason: str):
@@ -73,6 +94,10 @@ def scan_filesystem() -> list[PgramJob]:
                     jobs.append(job)
             else:
                 trench = entry.name
+                # Only scan current-year trench subfolders; ignore pre-2026 / out-of-range
+                # trenches and loose non-trench folders entirely.
+                if not _is_current_year_trench(trench):
+                    continue
                 for job_dir in entry.iterdir():
                     if not job_dir.is_dir():
                         continue
@@ -87,13 +112,15 @@ def scan_filesystem() -> list[PgramJob]:
 
 
 def scan_ignored_folders() -> list[IgnoredFolder]:
-    """Walk every scanned stage directory and collect sub-folders whose names do NOT match
-    Pgram_Job_###. These are silently skipped by scan_filesystem(); surfacing them here lets
-    the UI warn users about misnamed folders (e.g. 'PreSU17001' instead of 'Pgram_Job_123_SU17001').
+    """Collect misnamed folders that live INSIDE a current-year trench subfolder.
 
-    Folders that contain valid job children are treated as containers; only their misnamed
-    children are flagged. Empty non-matching folders and known Trench containers are handled
-    consistently with scan_filesystem's layout detection.
+    Only folders nested within a "Trench NNNNN" container whose number falls in the
+    configured current-year range (config.yaml `current_year_trenches`) are checked.
+    A child folder is flagged when its name does not match Pgram_Job_### — surfacing
+    it lets the UI warn users to rename it (e.g. 'PreSU20001' → 'Pgram_Job_123_SU20001').
+
+    Anything at the stage-root / trench level — loose folders like '__pycache__' or
+    'Pre-2026', and out-of-range trenches like 'Trench 19000' — is ignored entirely.
     """
     cfg = get_config()
     ignored: list[IgnoredFolder] = []
@@ -107,17 +134,15 @@ def scan_ignored_folders() -> list[IgnoredFolder]:
         for entry in sorted(stage_root.iterdir()):
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
-            if _parse_job_dir(entry, stage_key) is not None:
-                continue
-            subdirs = [s for s in entry.iterdir() if s.is_dir() and not s.name.startswith(".")]
-            has_job_children = any(_parse_job_dir(s, stage_key) is not None for s in subdirs)
-            if has_job_children or entry.name.startswith("Trench "):
-                for sub in sorted(subdirs):
-                    if _parse_job_dir(sub, stage_key) is not None:
-                        continue
-                    ignored.append(IgnoredFolder(name=sub.name, stage=stage_key, parent=entry.name))
-            else:
-                ignored.append(IgnoredFolder(name=entry.name, stage=stage_key))
+            if not _is_current_year_trench(entry.name):
+                continue  # not a current-year trench container → ignore this level entirely
+
+            for sub in sorted(entry.iterdir()):
+                if not sub.is_dir() or sub.name.startswith("."):
+                    continue
+                if _parse_job_dir(sub, stage_key) is not None:
+                    continue
+                ignored.append(IgnoredFolder(name=sub.name, stage=stage_key, parent=entry.name))
 
     return ignored
 
