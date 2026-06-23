@@ -48,6 +48,11 @@ def launch_cloudcompare(job: Optional[PgramJob] = None) -> dict:
     return _open(cfg.cloudcompare_path)
 
 
+def launch_cloudcompare_with_ply(ply_path: Path) -> dict:
+    cfg = get_config()
+    return _open(cfg.cloudcompare_path, [str(ply_path)])
+
+
 def launch_qgis(job: Optional[PgramJob] = None) -> dict:
     cfg = get_config()
     if not cfg.qgis_path:

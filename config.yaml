@@ -37,7 +37,7 @@ scripts:
   # REQUIRED for alignment — the 2026 GCP reference CSV. Alignment refuses to run until this is set.
   gcp_csv: "C:\\Users\\Photogrammetry\\To Be Processed\\GCPs 2026 20000-23000 EPSG32632 06-15-2026.csv"
   # Where the overnight script writes PLY / Orthos / DEM exports.
-  output_root: "C:/Users/Photogrammetry/GIS_2026"
+  overnight_output_assets_root: "C:/Users/Photogrammetry/GIS_2026"
 
 # Google Sheets spreadsheet ID (from the URL: /spreadsheets/d/{ID}/edit)
 gsheets_spreadsheet_id: "1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI"

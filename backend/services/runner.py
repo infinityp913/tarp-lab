@@ -16,6 +16,7 @@ from typing import Optional
 from backend.config import LOG_PATH, get_config
 from backend.models import PgramJob
 from backend.services import filesystem, gsheets
+from backend.services.volume import provision_from_ply
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,12 @@ def _worker(kind: str, steps: list[tuple[str, str, str]], jobs: list[PgramJob]) 
                 except Exception:
                     pass  # sheet sync is best-effort; the filesystem move is authoritative
 
+                if to_stage == "processed":
+                    try:
+                        provision_from_ply()
+                    except Exception as e:
+                        _log(f"provision_from_ply after {job.job_id}: {e}")
+
                 job = PgramJob(**{**job.model_dump(), "stage": to_stage})
                 _set(job.job_id, stage=to_stage)
 
@@ -220,7 +227,7 @@ def _run_script(script_kind: str, job: PgramJob) -> tuple[bool, str]:
         args = [str(folder), cfg.gcp_csv]
     else:
         script = cfg.script_overnight
-        args = [str(folder), cfg.output_root]
+        args = [str(folder), cfg.overnight_output_assets_root]
 
     cmd = [cfg.metashape_path, "-r", script] + args
     _log(f"{job.job_id} launching: {' '.join(cmd)}")

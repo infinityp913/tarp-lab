@@ -878,6 +878,14 @@ def init():
             _log_error(f"init failed: {e}")
 
 
+def get_field_pgram_map() -> dict[str, dict]:
+    """Return all rows from TARP Field Pgram Tracking, keyed by pgram number string.
+
+    Each value is a dict with keys: sus_opened, sus_closed, notes_from_field.
+    """
+    return _read_field_pgram_map()
+
+
 def warm_cache():
     """Pre-populate in-memory caches. Intended to run in a background thread at startup."""
     if not is_available():

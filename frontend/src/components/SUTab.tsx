@@ -3,7 +3,7 @@ import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
-import { fetchEntries, updateStage } from '../api/su'
+import { fetchEntries, provisionFromPly, updateStage } from '../api/su'
 import type { SUEntry } from '../types'
 import { SU_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
@@ -39,6 +39,7 @@ export function SUTab() {
   const [detailEntry, setDetailEntry] = useState<SUEntry | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [draggingEntry, setDraggingEntry] = useState<SUEntry | null>(null)
+  const [scanning, setScanning] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -56,6 +57,25 @@ export function SUTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  async function handleScanPly() {
+    setScanning(true)
+    try {
+      const result = await provisionFromPly()
+      if (result.created.length > 0) {
+        toast(`Created ${result.created.length} volume card${result.created.length !== 1 ? 's' : ''} from ${result.ply_count} PLY file${result.ply_count !== 1 ? 's' : ''}`, 'success')
+        await load()
+      } else if (result.ply_count === 0) {
+        toast('No PLY files found in output directory', 'error')
+      } else {
+        toast(`${result.ply_count} PLY file${result.ply_count !== 1 ? 's' : ''} scanned — all SUs already have cards`, 'success')
+      }
+    } catch (err: unknown) {
+      toast((err as Error).message || 'PLY scan failed', 'error')
+    } finally {
+      setScanning(false)
+    }
+  }
 
   const trenches = [...new Set(entries.map(e => e.trench).filter(Boolean))].sort()
 
@@ -129,6 +149,9 @@ export function SUTab() {
           {trenchFilter !== 'All Trenches' && ` of ${entries.length}`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
+        <button onClick={handleScanPly} disabled={scanning} style={scanBtn} title="Scan PLY directory and auto-create volume cards">
+          {scanning ? 'Scanning…' : '⬡ Scan PLY'}
+        </button>
         <button onClick={() => setShowCreate(true)} style={addBtn}>+ New SU Entry</button>
       </div>
 
@@ -215,6 +238,10 @@ const chipClear: React.CSSProperties = {
   display: 'flex', alignItems: 'center',
 }
 const refreshBtn: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
+  background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,
+}
+const scanBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
   background: T.surface, cursor: 'pointer', fontSize: 14, color: T.textSub,
 }

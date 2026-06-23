@@ -46,7 +46,7 @@ class Config:
         self.script_alignment: str = scripts_cfg.get("alignment", "")
         self.script_overnight: str = scripts_cfg.get("overnight", "")
         self.gcp_csv: str = scripts_cfg.get("gcp_csv", "")
-        self.output_root: str = scripts_cfg.get("output_root", "C:/Users/Photogrammetry/GIS_2026")
+        self.overnight_output_assets_root: str = scripts_cfg.get("overnight_output_assets_root", "C:/Users/Photogrammetry/GIS_2026")
         self.season_year: int = int(raw.get("season_year", 2026))
         trench_cfg = raw.get("current_year_trenches", {}) or {}
         self.current_year_trenches: tuple[int, int] = (

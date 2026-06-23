@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
-import { updatePgrams } from '../api/su'
+import { openPly, updatePgrams } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
@@ -19,12 +19,25 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
 
   const [top, setTop] = useState(entry.top_pgram)
   const [bot, setBot] = useState(entry.bot_pgram)
+  const [plyLoading, setPlyLoading] = useState<'top' | 'bot' | null>(null)
   const savedTop = useRef(entry.top_pgram)
   const savedBot = useRef(entry.bot_pgram)
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     opacity: isDragging ? 0.4 : 1,
+  }
+
+  async function handleOpenPly(e: React.MouseEvent, type: 'top' | 'bot') {
+    e.stopPropagation()
+    setPlyLoading(type)
+    try {
+      await openPly(entry.su_id, type)
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to open PLY', 'error')
+    } finally {
+      setPlyLoading(null)
+    }
   }
 
   async function handlePgramBlur() {
@@ -76,7 +89,35 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
         />
       </div>
 
-      <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>{entry.trench}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+        <span style={{ fontSize: 11, color: T.textMuted }}>{entry.trench}</span>
+        <div
+          style={{ display: 'flex', gap: 4 }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {entry.top_pgram && (
+            <button
+              style={plyBtn}
+              disabled={plyLoading !== null}
+              title={`Open Top PLY (pgram ${entry.top_pgram}) in CloudCompare`}
+              onClick={(e) => handleOpenPly(e, 'top')}
+            >
+              {plyLoading === 'top' ? '…' : 'Top PLY'}
+            </button>
+          )}
+          {entry.bot_pgram && (
+            <button
+              style={plyBtn}
+              disabled={plyLoading !== null}
+              title={`Open Bottom PLY (pgram ${entry.bot_pgram}) in CloudCompare`}
+              onClick={(e) => handleOpenPly(e, 'bot')}
+            >
+              {plyLoading === 'bot' ? '…' : 'Bot PLY'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -89,6 +130,18 @@ const cardStyle: React.CSSProperties = {
   cursor: 'grab',
   border: `1px solid ${T.border}`,
   userSelect: 'none',
+}
+
+const plyBtn: React.CSSProperties = {
+  padding: '1px 7px',
+  borderRadius: 4,
+  border: `1px solid ${T.border}`,
+  background: 'transparent',
+  color: T.textMuted,
+  fontSize: 10,
+  fontWeight: 600,
+  cursor: 'pointer',
+  letterSpacing: '0.03em',
 }
 
 const pgramInput: React.CSSProperties = {
