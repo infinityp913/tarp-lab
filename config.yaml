@@ -23,11 +23,12 @@ current_year_trenches:
   min: 20000
   max: 23000
 
-# Leave qgis blank for auto-discovery
+# Leave qgis / meshlab blank for auto-discovery
 app_paths:
   metashape: "C:\\Program Files\\Agisoft\\Metashape Pro\\metashape.exe"
   cloudcompare: "C:\\Program Files\\CloudCompare\\CloudCompare.exe"
   qgis: ""
+  meshlab: ""
 
 # Headless Metashape pipeline scripts (run by the column "Run Alignment" / "Run Overnight" buttons).
 # These are invoked once per job folder: metashape.exe -r <script> <job_folder> [<extra arg>]

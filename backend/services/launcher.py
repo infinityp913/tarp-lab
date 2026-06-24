@@ -53,6 +53,26 @@ def launch_cloudcompare_with_ply(ply_path: Path) -> dict:
     return _open(cfg.cloudcompare_path, [str(ply_path)])
 
 
+def launch_cloudcompare_with_plys(ply_paths: list[Path]) -> dict:
+    cfg = get_config()
+    # CloudCompare only reliably loads a single bare path argument; multiple files
+    # must be passed via the "-O" (open) command, once per file.
+    args: list[str] = []
+    for p in ply_paths:
+        args += ["-O", str(p)]
+    return _open(cfg.cloudcompare_path, args)
+
+
+def launch_meshlab_with_ply(ply_path: Path) -> dict:
+    cfg = get_config()
+    if not cfg.meshlab_path:
+        return {
+            "launched": False,
+            "error": "MeshLab not found. Set app_paths.meshlab in config.yaml.",
+        }
+    return _open(cfg.meshlab_path, [str(ply_path)])
+
+
 def launch_qgis(job: Optional[PgramJob] = None) -> dict:
     cfg = get_config()
     if not cfg.qgis_path:

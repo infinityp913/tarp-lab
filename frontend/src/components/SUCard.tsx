@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
-import { openPly, updatePgrams } from '../api/su'
+import { openPly, openBothPly, updatePgrams } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
@@ -19,7 +19,7 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
 
   const [top, setTop] = useState(entry.top_pgram)
   const [bot, setBot] = useState(entry.bot_pgram)
-  const [plyLoading, setPlyLoading] = useState<'top' | 'bot' | null>(null)
+  const [plyLoading, setPlyLoading] = useState<'top' | 'bot' | 'both' | null>(null)
   const savedTop = useRef(entry.top_pgram)
   const savedBot = useRef(entry.bot_pgram)
 
@@ -35,6 +35,18 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
       await openPly(entry.su_id, type)
     } catch (err: unknown) {
       toast((err as Error).message || 'Failed to open PLY', 'error')
+    } finally {
+      setPlyLoading(null)
+    }
+  }
+
+  async function handleOpenBothPly(e: React.MouseEvent) {
+    e.stopPropagation()
+    setPlyLoading('both')
+    try {
+      await openBothPly(entry.su_id)
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to open PLYs', 'error')
     } finally {
       setPlyLoading(null)
     }
@@ -89,8 +101,7 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
         />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-        <span style={{ fontSize: 11, color: T.textMuted }}>{entry.trench}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4 }}>
         <div
           style={{ display: 'flex', gap: 4 }}
           onPointerDown={(e) => e.stopPropagation()}
@@ -100,20 +111,30 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
             <button
               style={plyBtn}
               disabled={plyLoading !== null}
-              title={`Open Top PLY (pgram ${entry.top_pgram}) in CloudCompare`}
+              title={`Open Top PLY (pgram ${entry.top_pgram}) in MeshLab`}
               onClick={(e) => handleOpenPly(e, 'top')}
             >
-              {plyLoading === 'top' ? '…' : 'Top PLY'}
+              {plyLoading === 'top' ? '…' : 'Top PLY ↗'}
             </button>
           )}
           {entry.bot_pgram && (
             <button
               style={plyBtn}
               disabled={plyLoading !== null}
-              title={`Open Bottom PLY (pgram ${entry.bot_pgram}) in CloudCompare`}
+              title={`Open Bottom PLY (pgram ${entry.bot_pgram}) in MeshLab`}
               onClick={(e) => handleOpenPly(e, 'bot')}
             >
-              {plyLoading === 'bot' ? '…' : 'Bot PLY'}
+              {plyLoading === 'bot' ? '…' : 'Bot PLY ↗'}
+            </button>
+          )}
+          {entry.top_pgram && entry.bot_pgram && (
+            <button
+              style={plyBtn}
+              disabled={plyLoading !== null}
+              title={`Open both PLYs (pgrams ${entry.top_pgram} + ${entry.bot_pgram}) together in CloudCompare`}
+              onClick={handleOpenBothPly}
+            >
+              {plyLoading === 'both' ? '…' : 'Both ↗'}
             </button>
           )}
         </div>

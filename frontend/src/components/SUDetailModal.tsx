@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { SUEntry } from '../types'
-import { openPly, updateNotes } from '../api/su'
+import { openPly, openBothPly, updateNotes } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
@@ -13,7 +13,7 @@ interface Props {
 export function SUDetailModal({ entry, onClose, onUpdated }: Props) {
   const [notes, setNotes] = useState(entry.notes)
   const [saving, setSaving] = useState(false)
-  const [plyLoading, setPlyLoading] = useState<'top' | 'bot' | null>(null)
+  const [plyLoading, setPlyLoading] = useState<'top' | 'bot' | 'both' | null>(null)
 
   async function handleOpenPly(type: 'top' | 'bot') {
     setPlyLoading(type)
@@ -21,6 +21,17 @@ export function SUDetailModal({ entry, onClose, onUpdated }: Props) {
       await openPly(entry.su_id, type)
     } catch (err: unknown) {
       toast((err as Error).message || 'Failed to open PLY', 'error')
+    } finally {
+      setPlyLoading(null)
+    }
+  }
+
+  async function handleOpenBothPly() {
+    setPlyLoading('both')
+    try {
+      await openBothPly(entry.su_id)
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to open PLYs', 'error')
     } finally {
       setPlyLoading(null)
     }
@@ -91,9 +102,9 @@ export function SUDetailModal({ entry, onClose, onUpdated }: Props) {
               onClick={() => handleOpenPly('top')}
               disabled={plyLoading !== null}
               style={btnSecondary}
-              title={`Open Top PLY (pgram ${entry.top_pgram}) in CloudCompare`}
+              title={`Open Top PLY (pgram ${entry.top_pgram}) in MeshLab`}
             >
-              {plyLoading === 'top' ? 'Opening…' : `Top PLY`}
+              {plyLoading === 'top' ? 'Opening…' : `Top PLY ↗`}
             </button>
           )}
           {entry.bot_pgram && (
@@ -101,9 +112,19 @@ export function SUDetailModal({ entry, onClose, onUpdated }: Props) {
               onClick={() => handleOpenPly('bot')}
               disabled={plyLoading !== null}
               style={btnSecondary}
-              title={`Open Bottom PLY (pgram ${entry.bot_pgram}) in CloudCompare`}
+              title={`Open Bottom PLY (pgram ${entry.bot_pgram}) in MeshLab`}
             >
-              {plyLoading === 'bot' ? 'Opening…' : `Bot PLY`}
+              {plyLoading === 'bot' ? 'Opening…' : `Bot PLY ↗`}
+            </button>
+          )}
+          {entry.top_pgram && entry.bot_pgram && (
+            <button
+              onClick={handleOpenBothPly}
+              disabled={plyLoading !== null}
+              style={btnSecondary}
+              title={`Open both PLYs (pgrams ${entry.top_pgram} + ${entry.bot_pgram}) together in CloudCompare`}
+            >
+              {plyLoading === 'both' ? 'Opening…' : `Both ↗`}
             </button>
           )}
           <button onClick={onClose} style={btnSecondary}>Cancel</button>

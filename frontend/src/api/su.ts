@@ -81,6 +81,14 @@ export async function openPly(suId: string, pgramType: 'top' | 'bot'): Promise<v
   }
 }
 
+export async function openBothPly(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-both-ply`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function pullFieldData(): Promise<{ total: number; with_field_data: number }> {
   const res = await fetch('/api/sheets/pull', { method: 'POST' })
   if (!res.ok) {

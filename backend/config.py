@@ -42,6 +42,7 @@ class Config:
         self.metashape_path: str = app_cfg.get("metashape", "")
         self.cloudcompare_path: str = app_cfg.get("cloudcompare", "")
         self.qgis_path: str = self._resolve_qgis(app_cfg.get("qgis", ""))
+        self.meshlab_path: str = self._resolve_meshlab(app_cfg.get("meshlab", ""))
         scripts_cfg = raw.get("scripts", {})
         self.script_alignment: str = scripts_cfg.get("alignment", "")
         self.script_overnight: str = scripts_cfg.get("overnight", "")
@@ -64,6 +65,20 @@ class Config:
         patterns = [
             "C:\\Program Files\\QGIS*\\bin\\qgis-bin.exe",
             "C:\\Program Files\\QGIS*\\bin\\qgis-ltr-bin.exe",
+        ]
+        for pattern in patterns:
+            matches = sorted(glob.glob(pattern), reverse=True)
+            if matches:
+                return matches[0]
+        return ""
+
+    def _resolve_meshlab(self, configured: str) -> str:
+        if configured:
+            return configured
+        # Auto-discover MeshLab on Windows
+        patterns = [
+            "C:\\Program Files\\VCG\\MeshLab*\\meshlab.exe",
+            "C:\\Program Files\\MeshLab*\\meshlab.exe",
         ]
         for pattern in patterns:
             matches = sorted(glob.glob(pattern), reverse=True)
