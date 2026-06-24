@@ -5,7 +5,7 @@ import {
 } from '@dnd-kit/core'
 import {
   fetchJobs, fetchIgnoredFolders, updateStage,
-  startRun, getRunStatus, cancelRun, batchMove,
+  startRun, getRunStatus, cancelRun, batchMove, fixSuNames,
 } from '../api/pgram'
 import type { IgnoredFolder, RunKind, RunStatus, RunJob } from '../api/pgram'
 import type { PgramJob } from '../types'
@@ -64,6 +64,7 @@ export function PgramTab({ refreshKey }: Props) {
   const [run, setRun] = useState<RunStatus | null>(null)
   const [batchConfirm, setBatchConfirm] = useState<{ from: string; to: string; count: number } | null>(null)
   const [moving, setMoving] = useState<{ to: string; count: number } | null>(null)
+  const [fixingNames, setFixingNames] = useState(false)
   const pollingRef = useRef(false)
 
   const sensors = useSensors(
@@ -144,6 +145,32 @@ export function PgramTab({ refreshKey }: Props) {
       toast('Stopping after the current job…', 'info')
     } catch (e: unknown) {
       toast((e as Error).message, 'error')
+    }
+  }
+
+  async function handleFixNames() {
+    setFixingNames(true)
+    try {
+      const r = await fixSuNames()
+      const changed = r.renamed.length + r.organized.length
+      if (changed === 0 && r.skipped.length === 0) {
+        toast('Folders already tagged and organized — nothing to fix', 'info')
+      } else {
+        const parts: string[] = []
+        if (r.renamed.length) parts.push(`Renamed ${r.renamed.length} folder${r.renamed.length === 1 ? '' : 's'}`)
+        if (r.organized.length) parts.push(`organized ${r.organized.length} into trench${r.organized.length === 1 ? '' : 'es'}`)
+        if (r.skipped.length) parts.push(`${r.skipped.length} need attention`)
+        const msg = parts.join(', ').replace(/^./, (c) => c.toUpperCase())
+        toast(msg, changed ? 'success' : 'info')
+      }
+      if (r.skipped.length) {
+        console.warn('Fix SU names — skipped:', r.skipped)
+      }
+      await load()
+    } catch (e: unknown) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setFixingNames(false)
     }
   }
 
@@ -303,6 +330,14 @@ export function PgramTab({ refreshKey }: Props) {
           {trenchFilter !== 'All Trenches' && ` of ${jobs.length}`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
+        <button
+          onClick={handleFixNames}
+          disabled={fixingNames}
+          style={{ ...refreshBtn, opacity: fixingNames ? 0.5 : 1, cursor: fixingNames ? 'default' : 'pointer' }}
+          title="Across all stages: tag job folders with their SU number (SU####), looking up missing SUs in TARP Field Pgram Tracking, then sort each loose folder into its Trench subfolder."
+        >
+          {fixingNames ? '⚙ Working…' : '⚙ Fix SU names & sort into trenches'}
+        </button>
       </div>
 
       {ignoredFolders.length > 0 && !ignoredDismissed && (

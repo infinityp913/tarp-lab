@@ -10,6 +10,7 @@ from backend.services.filesystem import (
     _MSI_SUFFIX,
     _parse_job_dir,
     create_job_folder,
+    fix_su_folder_names,
     move_job,
     move_to_msi,
     scan_filesystem,
@@ -257,6 +258,151 @@ def test_scan_ignored_returns_ignored_folder_model(tmp_path, use_tmp_base):
     assert result[0].name == "BadName"
     assert result[0].stage == "to_be_processed"
     assert result[0].parent == "Trench 20000"
+
+
+# ─── fix_su_folder_names ─────────────────────────────────────────────────────
+
+def test_fix_bare_number_suffix_gets_su_tag(tmp_path, use_tmp_base):
+    # Case A: bare SU number suffix → SU#### (no sheet lookup needed)
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696_21015")
+    result = fix_su_folder_names({})
+    assert result["renamed"] == [
+        {"from": "Pgram_Job_696_21015", "to": "Pgram_Job_696_SU21015", "pgram": 696, "source": "suffix"}
+    ]
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_696_SU21015").exists()
+
+
+def test_fix_bare_compact_range_suffix(tmp_path, use_tmp_base):
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_700_21015-17")
+    result = fix_su_folder_names({})
+    assert result["renamed"][0]["to"] == "Pgram_Job_700_SU21015-17"
+
+
+def test_fix_no_suffix_uses_field_sheet(tmp_path, use_tmp_base):
+    # Case B: no SU suffix → look up sus_opened in the field map and append it
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696")
+    field_map = {"696": {"sus_opened": "21015-17"}}
+    result = fix_su_folder_names(field_map)
+    assert result["renamed"][0]["to"] == "Pgram_Job_696_SU21015-17"
+    assert result["renamed"][0]["source"] == "field_sheet"
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_696_SU21015-17").exists()
+
+
+def test_fix_no_suffix_field_list_sanitized(tmp_path, use_tmp_base):
+    # Comma/space separators collapse to underscores for a clean folder token
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696")
+    result = fix_su_folder_names({"696": {"sus_opened": "21015, 21016"}})
+    assert result["renamed"][0]["to"] == "Pgram_Job_696_SU21015_21016"
+
+
+def test_fix_no_suffix_no_field_entry_skipped(tmp_path, use_tmp_base):
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696")
+    result = fix_su_folder_names({})
+    assert result["renamed"] == []
+    assert len(result["skipped"]) == 1
+    assert result["skipped"][0]["name"] == "Pgram_Job_696"
+    # Folder is left untouched
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_696").exists()
+
+
+def test_fix_already_tagged_left_untouched(tmp_path, use_tmp_base):
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696_SU21015")
+    result = fix_su_folder_names({"696": {"sus_opened": "99999"}})
+    assert result == {"renamed": [], "organized": [], "skipped": []}
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_696_SU21015").exists()
+
+
+def test_fix_unrecognized_suffix_left_untouched(tmp_path, use_tmp_base):
+    # A non-numeric, non-SU suffix is not a bare SU number → leave it alone, no skip noise
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696_redo")
+    result = fix_su_folder_names({})
+    assert result == {"renamed": [], "organized": [], "skipped": []}
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_696_redo").exists()
+
+
+def test_fix_flat_layout_renames_and_organizes(tmp_path, use_tmp_base):
+    # Flat layout: job folder directly under the stage root → renamed AND filed under its trench
+    (tmp_path / "To Be Processed" / "Pgram_Job_800_22001").mkdir(parents=True)
+    result = fix_su_folder_names({})
+    assert result["renamed"][0]["to"] == "Pgram_Job_800_SU22001"
+    assert result["organized"] == [{"name": "Pgram_Job_800_SU22001", "trench": "Trench 22000"}]
+    # Moved out of the flat root into the (newly created) trench subfolder
+    assert not (tmp_path / "To Be Processed" / "Pgram_Job_800_SU22001").exists()
+    assert (tmp_path / "To Be Processed" / "Trench 22000" / "Pgram_Job_800_SU22001").exists()
+
+
+def test_fix_organizes_already_tagged_flat_folder(tmp_path, use_tmp_base):
+    # Correctly named but loose under the stage root → organized only (no rename)
+    (tmp_path / "To Be Processed" / "Pgram_Job_810_SU23005").mkdir(parents=True)
+    result = fix_su_folder_names({})
+    assert result["renamed"] == []
+    assert result["organized"] == [{"name": "Pgram_Job_810_SU23005", "trench": "Trench 23000"}]
+    assert (tmp_path / "To Be Processed" / "Trench 23000" / "Pgram_Job_810_SU23005").exists()
+
+
+def test_fix_organizes_into_existing_trench(tmp_path, use_tmp_base):
+    # Trench subfolder already exists (holding another job) — flat job is moved in beside it
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_700_SU21001")
+    (tmp_path / "To Be Processed" / "Pgram_Job_701_SU21002").mkdir(parents=True)
+    result = fix_su_folder_names({})
+    assert result["organized"] == [{"name": "Pgram_Job_701_SU21002", "trench": "Trench 21000"}]
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_701_SU21002").exists()
+
+
+def test_fix_organize_collision_skipped(tmp_path, use_tmp_base):
+    # A same-named folder already nested under the target trench → skip, leave the flat one
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_705_SU21010")
+    (tmp_path / "To Be Processed" / "Pgram_Job_705_SU21010").mkdir(parents=True)
+    result = fix_su_folder_names({})
+    assert result["organized"] == []
+    assert len(result["skipped"]) == 1
+    assert "already exists under Trench 21000" in result["skipped"][0]["reason"]
+    assert (tmp_path / "To Be Processed" / "Pgram_Job_705_SU21010").exists()
+
+
+def test_fix_flat_out_of_range_trench_not_organized(tmp_path, use_tmp_base):
+    # Flat folder whose SU infers an out-of-range trench (24000 > max 23000) stays flat
+    (tmp_path / "To Be Processed" / "Pgram_Job_820_24001").mkdir(parents=True)
+    result = fix_su_folder_names({})
+    # Still SU-tagged, but not moved (no valid current-year trench)
+    assert result["renamed"][0]["to"] == "Pgram_Job_820_SU24001"
+    assert result["organized"] == []
+    assert (tmp_path / "To Be Processed" / "Pgram_Job_820_SU24001").exists()
+
+
+def test_fix_target_collision_skipped(tmp_path, use_tmp_base):
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696_21015")
+    _mk_stage(tmp_path, "To Be Processed", "Trench 21000", "Pgram_Job_696_SU21015")
+    result = fix_su_folder_names({})
+    assert result["renamed"] == []
+    assert len(result["skipped"]) == 1
+    assert "already exists" in result["skipped"][0]["reason"]
+    # Original is preserved (not clobbered)
+    assert (tmp_path / "To Be Processed" / "Trench 21000" / "Pgram_Job_696_21015").exists()
+
+
+def test_fix_spans_all_stages(tmp_path, use_tmp_base):
+    # Loose/untagged folders are fixed in any stage, not just To Be Processed.
+    _mk_stage(tmp_path, "To Be Aligned", "Trench 21000", "Pgram_Job_900_21015")
+    result = fix_su_folder_names({})
+    assert result["renamed"][0]["to"] == "Pgram_Job_900_SU21015"
+    assert (tmp_path / "To Be Aligned" / "Trench 21000" / "Pgram_Job_900_SU21015").exists()
+
+
+def test_fix_organizes_flat_folder_in_other_stage(tmp_path, use_tmp_base):
+    # Real-world case: flat untagged folder in To Be Aligned → tagged via field sheet + organized
+    (tmp_path / "To Be Aligned" / "Pgram_Job_830").mkdir(parents=True)
+    result = fix_su_folder_names({"830": {"sus_opened": "21030"}})
+    assert result["renamed"][0]["to"] == "Pgram_Job_830_SU21030"
+    assert result["organized"] == [{"name": "Pgram_Job_830_SU21030", "trench": "Trench 21000"}]
+    assert (tmp_path / "To Be Aligned" / "Trench 21000" / "Pgram_Job_830_SU21030").exists()
+
+
+def test_fix_ignores_out_of_range_trench(tmp_path, use_tmp_base):
+    # Nested jobs under an out-of-range trench are not scanned (matches scan_filesystem)
+    _mk_stage(tmp_path, "To Be Processed", "Trench 19000", "Pgram_Job_950_19001")
+    result = fix_su_folder_names({})
+    assert result == {"renamed": [], "organized": [], "skipped": []}
 
 
 # ─── scan_subfolders ─────────────────────────────────────────────────────────
