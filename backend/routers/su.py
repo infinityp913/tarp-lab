@@ -10,7 +10,10 @@ from backend.models import (
 )
 from backend.services import gsheets
 from backend.services.filesystem import find_ply_for_pgram
-from backend.services.launcher import launch_cloudcompare_with_ply
+from backend.services.launcher import (
+    launch_cloudcompare_with_plys,
+    launch_meshlab_with_ply,
+)
 from backend.services.volume import provision_from_ply as _provision_from_ply
 
 router = APIRouter(prefix="/api/su", tags=["su"])
@@ -45,15 +48,8 @@ def provision_from_ply():
     return _provision_from_ply()
 
 
-@router.post("/entries/{su_id}/open-ply/{pgram_type}")
-def open_ply(su_id: str, pgram_type: str):
-    """Open the PLY file for this SU's top or bottom pgram model in CloudCompare.
-
-    pgram_type must be "top" or "bot".
-    """
-    if pgram_type not in ("top", "bot"):
-        raise HTTPException(status_code=422, detail="pgram_type must be 'top' or 'bot'")
-
+def _resolve_su_ply(su_id: str, pgram_type: str):
+    """Return the resolved PLY Path for an SU's top/bot pgram, raising HTTPException on any miss."""
     rows = gsheets.get_su_rows()
     entry_data = next((r for r in rows if r["su_id"] == su_id), None)
     if not entry_data:
@@ -66,10 +62,35 @@ def open_ply(su_id: str, pgram_type: str):
     ply_path = find_ply_for_pgram(int(pgram_val))
     if not ply_path:
         raise HTTPException(status_code=404, detail=f"No PLY file found for pgram {pgram_val}")
+    return ply_path
 
-    result = launch_cloudcompare_with_ply(ply_path)
+
+@router.post("/entries/{su_id}/open-ply/{pgram_type}")
+def open_ply(su_id: str, pgram_type: str):
+    """Open the PLY file for this SU's top or bottom pgram model in MeshLab.
+
+    pgram_type must be "top" or "bot".
+    """
+    if pgram_type not in ("top", "bot"):
+        raise HTTPException(status_code=422, detail="pgram_type must be 'top' or 'bot'")
+
+    ply_path = _resolve_su_ply(su_id, pgram_type)
+
+    result = launch_meshlab_with_ply(ply_path)
     if not result.get("launched"):
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to open PLY"))
+    return result
+
+
+@router.post("/entries/{su_id}/open-both-ply")
+def open_both_ply(su_id: str):
+    """Open both the top and bottom PLY files for this SU together in CloudCompare."""
+    top_path = _resolve_su_ply(su_id, "top")
+    bot_path = _resolve_su_ply(su_id, "bot")
+
+    result = launch_cloudcompare_with_plys([top_path, bot_path])
+    if not result.get("launched"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to open PLYs"))
     return result
 
 

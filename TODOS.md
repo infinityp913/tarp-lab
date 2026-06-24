@@ -32,10 +32,10 @@ Done:
 
 Testing needed (on lab machine):
 - [ ] Run overnight script on a real job via the Run Overnight button; confirm volume cards are auto-created in "Not Started" after the job lands in Processed
-- [ ] Verify `top_pgram` = pgram that opened each SU (from Field Tracking "SUs Opened" column)
-- [ ] Verify `bot_pgram` = highest pgram in which each SU appears in any `sus_closed` column across all field pgram rows
-- [ ] Verify compact SU range notation (e.g. `21015-17`) expands correctly to individual cards
+- [ x ] Verify `top_pgram` = pgram that opened each SU (from Field Tracking "SUs Opened" column)
+- [ x ] Verify `bot_pgram` = highest pgram in which each SU appears in any `sus_closed` column across all field pgram rows
+- [ x ] Verify compact SU range notation (e.g. `21015-17`) expands correctly to individual cards
 - [ ] Confirm "Top PLY" button opens the correct PLY file in CloudCompare
 - [ ] Confirm "Bot PLY" button opens the correct PLY file in CloudCompare (if a closing pgram exists)
-- [ ] Click "Scan PLY" manually on a card already in Processed — confirm it is idempotent (no duplicates created)
-- [ ] Confirm `overnight_output_assets_root` path in `config.yaml` matches the lab machine GIS_2026 directory
+- [ x ] Click "Scan PLY" manually on a card already in Processed — confirm it is idempotent (no duplicates created)
+- [ x ] Confirm `overnight_output_assets_root` path in `config.yaml` matches the lab machine GIS_2026 directory
