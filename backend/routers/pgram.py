@@ -51,6 +51,22 @@ def list_ignored_folders():
     return [f.model_dump() for f in filesystem.scan_ignored_folders()]
 
 
+@router.post("/fix-su-names")
+def fix_su_names():
+    """Rename misformatted job folders in 'To Be Processed' so the SU is tagged 'SU####'.
+
+    Bare-number suffixes are reformatted in place; folders with no SU are looked up by
+    pgram number in TARP Field Pgram Tracking ('SUs Opened' column). Cards refresh on the
+    next /jobs fetch. The field lookup is best-effort — case A still runs if Sheets is down.
+    """
+    field_map: dict = {}
+    try:
+        field_map = gsheets.get_field_pgram_map()
+    except Exception:
+        pass  # Sheets unavailable — still handle bare-number reformats (case A)
+    return filesystem.fix_su_folder_names(field_map)
+
+
 @router.get("/season")
 def season():
     """Current season: the header year label plus the inclusive trench range that job

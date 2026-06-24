@@ -15,6 +15,10 @@ JOB_PATTERN = re.compile(r"^Pgram_Job_(\d+)(?:_(.+))?$", re.IGNORECASE)
 TRENCH_PATTERN = re.compile(r"^Trench\s+(\d+)$", re.IGNORECASE)
 _MSI_SUFFIX = "_MOVED_TO_MSI"
 
+# Filesystem stages scanned for jobs, in board order. Shared by scan_filesystem,
+# scan_ignored_folders, and fix_su_folder_names so they stay in lockstep.
+_SCAN_STAGES = ("to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air")
+
 
 def _trench_number(name: str) -> Optional[int]:
     """Return the numeric trench id for a 'Trench NNNNN' folder, or None if it isn't one."""
@@ -73,7 +77,7 @@ def scan_filesystem() -> list[PgramJob]:
     cfg = get_config()
     jobs: list[PgramJob] = []
 
-    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air"):
+    for stage_key in _SCAN_STAGES:
         folder_name = cfg.stage_folders[stage_key]
         stage_root = Path(cfg.base_path) / folder_name
 
@@ -125,7 +129,7 @@ def scan_ignored_folders() -> list[IgnoredFolder]:
     cfg = get_config()
     ignored: list[IgnoredFolder] = []
 
-    for stage_key in ("to_be_processed", "to_be_aligned", "to_overnight", "processed", "uploaded_air"):
+    for stage_key in _SCAN_STAGES:
         folder_name = cfg.stage_folders[stage_key]
         stage_root = Path(cfg.base_path) / folder_name
         if not stage_root.exists():
@@ -271,6 +275,150 @@ def find_ply_for_pgram(pgram_num: int) -> Optional[Path]:
         if f.is_file() and f.suffix.lower() == ".ply" and prefix_pattern.match(f.stem):
             return f
     return None
+
+
+# A folder suffix that is purely an SU number / range / list (no 'SU' prefix),
+# e.g. "21015", "21015-17", "21015, 21016". Underscores or letters → not a bare SU.
+_BARE_SU_PATTERN = re.compile(r"^\d[\d\s,\-]*$")
+# A suffix that is already SU-tagged, e.g. "SU21015" or "su 21015".
+_TAGGED_SU_PATTERN = re.compile(r"^SU\s*\d", re.IGNORECASE)
+
+
+def _su_suffix(value: str) -> str:
+    """Build an 'SU####' folder suffix from a raw SU value.
+
+    Collapses comma/whitespace separators to underscores so the result is a clean,
+    filesystem-safe single token: "21015, 21016" → "SU21015_21016", "21015-17" → "SU21015-17".
+    """
+    cleaned = re.sub(r"[,\s]+", "_", value.strip())
+    return f"SU{cleaned}"
+
+
+def _iter_stage_job_dirs() -> list[tuple[Path, Path]]:
+    """Return (job_folder, stage_root) for every Pgram_Job_### folder across all filesystem
+    stages (flat + nested layouts). stage_root is carried so callers can tell whether a
+    folder is flat (folder.parent == stage_root) or already nested under a trench."""
+    cfg = get_config()
+    results: list[tuple[Path, Path]] = []
+    for stage_key in _SCAN_STAGES:
+        stage_root = Path(cfg.base_path) / cfg.stage_folders[stage_key]
+        if not stage_root.exists():
+            continue
+        for entry in stage_root.iterdir():
+            if not entry.is_dir():
+                continue
+            if JOB_PATTERN.match(entry.name):
+                results.append((entry, stage_root))  # flat layout
+            elif _is_current_year_trench(entry.name):
+                for child in entry.iterdir():
+                    if child.is_dir() and JOB_PATTERN.match(child.name):
+                        results.append((child, stage_root))
+    return results
+
+
+def _organize_into_trench(folder: Path, stage_root: Path, skipped: list[dict]) -> Optional[dict]:
+    """Move a flat (un-nested) job folder into its inferred 'Trench NNNNN' subfolder.
+
+    A folder is 'organized' only when it sits directly under `stage_root` (flat layout)
+    and its SU number infers a current-year trench. Folders already inside a trench
+    subfolder, or whose trench can't be determined / is out of range, are left in place.
+    Creates the trench subfolder if it doesn't exist. Returns an entry on move, else None.
+    """
+    if folder.parent != stage_root:
+        return None  # already nested under a trench subfolder
+    job = _parse_job_dir(folder, "to_be_processed")  # reuse SU→trench inference
+    trench = job.trench if job else ""
+    if not trench or not _is_current_year_trench(trench):
+        return None  # no determinable current-year trench → leave flat
+    dest = stage_root / trench / folder.name
+    _assert_within_base(dest, Path(get_config().base_path))
+    if dest.exists():
+        skipped.append({"name": folder.name, "reason": f"already exists under {trench}"})
+        return None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(folder), str(dest))
+    except OSError as e:
+        skipped.append({"name": folder.name, "reason": str(e)})
+        return None
+    return {"name": folder.name, "trench": trench}
+
+
+def fix_su_folder_names(field_map: dict[str, dict]) -> dict:
+    """Normalize Pgram job folders across all stages: SU-tag the name, then file it under
+    the right trench subfolder.
+
+    Step 1 — SU-tag the folder name. Two cases are corrected:
+      A. Bare SU-number suffix (no 'SU' prefix), e.g. 'Pgram_Job_696_21015'
+         → 'Pgram_Job_696_SU21015'  (reformat in place — no sheet lookup)
+      B. No SU suffix at all, e.g. 'Pgram_Job_696'
+         → look up the pgram in `field_map['696']['sus_opened']` (TARP Field Pgram
+           Tracking) and append it, e.g. → 'Pgram_Job_696_SU21015-17'
+    Folders already SU-tagged, or with an unrecognized non-numeric suffix (e.g. '..._redo'),
+    keep their name.
+
+    Step 2 — organize. Any job folder sitting flat directly under a stage folder (e.g.
+    'To Be Aligned/Pgram_Job_696') is moved into its inferred 'Trench NNNNN' subfolder
+    (created if missing). Folders already nested under a trench are left where they are.
+
+    Runs over every filesystem stage (To Be Processed, To Be Aligned, To Overnight,
+    Processed, Uploaded to AIR) — wherever loose folders happen to be.
+
+    `field_map` is keyed by pgram-number string → {'sus_opened': str, ...}, as returned by
+    `gsheets.get_field_pgram_map()`. Pass `{}` to skip case B. Both steps update
+    `su_string`/`trench`, so the pgram cards refresh on the next scan.
+
+    Returns {"renamed": [{from, to, pgram, source}], "organized": [{name, trench}],
+             "skipped": [{name, reason}]}.
+    """
+    renamed: list[dict] = []
+    organized: list[dict] = []
+    skipped: list[dict] = []
+
+    for folder, stage_root in _iter_stage_job_dirs():
+        name = folder.name
+        m = JOB_PATTERN.match(name)
+        if not m:
+            continue
+        num = m.group(1)
+        suffix = (m.group(2) or "").strip()
+
+        # ── Step 1: SU-tag rename ──────────────────────────────────────────────
+        new_name = name
+        if suffix:
+            if not _TAGGED_SU_PATTERN.match(suffix) and _BARE_SU_PATTERN.match(suffix):
+                new_name = f"Pgram_Job_{num}_{_su_suffix(suffix)}"  # case A
+                source = "suffix"
+            # already tagged or unrecognized suffix → name unchanged, may still organize
+        else:
+            sus_opened = str(field_map.get(num, {}).get("sus_opened", "")).strip()
+            if not sus_opened:
+                skipped.append({"name": name, "reason": f"no 'SUs Opened' in field tracking for pgram {num}"})
+                continue  # no SU → can't tag and can't infer a trench
+            new_name = f"Pgram_Job_{num}_{_su_suffix(sus_opened)}"  # case B
+            source = "field_sheet"
+
+        if new_name != name:
+            target = folder.parent / new_name
+            if target.exists():
+                skipped.append({"name": name, "reason": f"target '{new_name}' already exists"})
+                continue
+            try:
+                folder.rename(target)
+            except OSError as e:
+                skipped.append({"name": name, "reason": str(e)})
+                continue
+            renamed.append({"from": name, "to": new_name, "pgram": int(num), "source": source})
+            folder = target
+
+        # ── Step 2: organize flat folders into trench subfolders ───────────────
+        entry = _organize_into_trench(folder, stage_root, skipped)
+        if entry:
+            organized.append(entry)
+
+    if renamed or organized:
+        logger.info(f"fix_su_folder_names: renamed {len(renamed)}, organized {len(organized)} folder(s)")
+    return {"renamed": renamed, "organized": organized, "skipped": skipped}
 
 
 def scan_subfolders(parent_path: Optional[str] = None) -> list[str]:

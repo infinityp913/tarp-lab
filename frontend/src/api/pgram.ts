@@ -22,6 +22,21 @@ export async function fetchIgnoredFolders(): Promise<IgnoredFolder[]> {
   }
 }
 
+export interface FixSuNamesResult {
+  renamed: { from: string; to: string; pgram: number; source: 'suffix' | 'field_sheet' }[]
+  organized: { name: string; trench: string }[]
+  skipped: { name: string; reason: string }[]
+}
+
+export async function fixSuNames(): Promise<FixSuNamesResult> {
+  const res = await fetch('/api/pgram/fix-su-names', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
+
 export interface Season {
   year: number
   trench_min: number
