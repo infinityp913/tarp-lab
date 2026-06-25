@@ -7,16 +7,34 @@ import logging
 
 from backend.models import SUEntry, cet_now, expand_su_range, trench_from_su_id
 from backend.services import gsheets
-from backend.services.filesystem import scan_ply_files
+from backend.services.filesystem import scan_filesystem, scan_ply_files
 
 logger = logging.getLogger(__name__)
+
+
+def _pgram_to_su_string() -> dict[str, str]:
+    """Map pgram number string → the job folder's su_string (e.g. "830" → "SU23015-23016").
+
+    This is the authoritative SU list the lab already parsed from the job folder name.
+    Prefer the processed-stage folder when the same pgram appears in multiple stages.
+    """
+    result: dict[str, str] = {}
+    for job in scan_filesystem():
+        if not job.su_string:
+            continue
+        num = job.job_id.split("_")[-1]
+        if num not in result or job.stage == "processed":
+            result[num] = job.su_string
+    return result
 
 
 def provision_from_ply() -> dict:
     """Scan {overnight_output_assets_root}/PLY/ and create volume cards for new SUs.
 
     For each PLY file found:
-      - Looks up that pgram in Field Pgram Tracking to get sus_opened
+      - Determines the SUs for that pgram by unioning the job folder's su_string
+        (authoritative, always present) with Field Pgram Tracking sus_opened
+        (often empty when a job lands in processed overnight)
       - Expands range strings (e.g. 21015-17 → 21015, 21016, 21017)
       - Sets top_pgram from the trigger pgram; bot_pgram from the last pgram
         that lists that SU in sus_closed across all field pgrams
@@ -30,6 +48,7 @@ def provision_from_ply() -> dict:
 
     existing_su_ids: set[str] = {row["su_id"] for row in gsheets.get_su_rows()}
     field_map = gsheets.get_field_pgram_map()
+    pgram_su_strings = _pgram_to_su_string()
 
     # Build reverse index: su_id → highest pgram number seen in sus_closed
     su_to_bot: dict[str, int] = {}
@@ -48,12 +67,25 @@ def provision_from_ply() -> dict:
     for ply in ply_files:
         pgram_num = ply["pgram_num"]
         pgram_str = str(pgram_num)
+        # The job folder name uses "_" to separate multiple SUs (SU22003_22090_…);
+        # normalise to commas so expand_su_range splits them.
+        folder_sus = pgram_su_strings.get(pgram_str, "").replace("_", ",")
         sus_opened_str = field_map.get(pgram_str, {}).get("sus_opened", "")
-        if not sus_opened_str:
-            skipped.append({"pgram": pgram_num, "reason": "no sus_opened in field tracking"})
+
+        # Union both sources, preserving order and de-duplicating.
+        su_ids: list[str] = []
+        seen: set[str] = set()
+        for source in (folder_sus, sus_opened_str):
+            for su_id in expand_su_range(source):
+                if su_id not in seen:
+                    seen.add(su_id)
+                    su_ids.append(su_id)
+
+        if not su_ids:
+            skipped.append({"pgram": pgram_num, "reason": "no SUs in job folder or field tracking"})
             continue
 
-        for su_id in expand_su_range(sus_opened_str):
+        for su_id in su_ids:
             if not su_id.isdigit():
                 continue
             if su_id in existing_su_ids:
