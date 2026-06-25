@@ -1,8 +1,8 @@
 # TARP Lab Dashboard (`tarp-lab`)
 
-Localhost kanban dashboard for the TARP photogrammetry lab — tracks Pgram jobs through the processing pipeline and SU volumetrics. Dark-mode UI, Google Sheets sync.
+Localhost kanban dashboard built for the **Tharros Archaeological Research Project (TARP)** — and adaptable to any active archaeological excavation. Tracks photogrammetry (Pgram) jobs through the full processing pipeline and Stratigraphic Unit (SU) volume generation processes. Dark-mode UI, Google Sheets sync.
 
-See also: `tarp-field` repo (separate) — light-mode Field website for archaeologists.
+See also: [`tarp-field` repo](https://github.com/infinityp913/tarp-field) (separate) — light-mode Field website for archaeologists.
 
 ## Tabs
 
