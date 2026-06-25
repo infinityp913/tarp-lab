@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
@@ -159,27 +159,45 @@ export function SUTab() {
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading SU entries…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12, alignItems: 'flex-start' }}>
             {SU_STAGES.map(({ key, label }) => (
-              <KanbanColumn
-                key={key}
-                id={key}
-                title={label}
-                items={byStage(key)}
-                count={byStage(key).length}
-                color={STAGE_COLORS[key]}
-                isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUMove(draggingEntry.stage, key)) : true}
-                renderCard={(entry) => (
-                  <SUCard
-                    key={entry.su_id}
-                    entry={entry}
-                    onClick={() => setDetailEntry(entry)}
-                    onUpdated={(updated) =>
-                      setEntries((prev) => prev.map((e) => e.su_id === updated.su_id ? updated : e))
-                    }
+              <Fragment key={key}>
+                <KanbanColumn
+                  id={key}
+                  title={label}
+                  items={byStage(key)}
+                  count={byStage(key).length}
+                  color={STAGE_COLORS[key]}
+                  isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUMove(draggingEntry.stage, key)) : true}
+                  minContentHeight={key === 'not_started' ? 120 : 300}
+                  renderCard={(entry) => (
+                    <SUCard
+                      key={entry.su_id}
+                      entry={entry}
+                      onClick={() => setDetailEntry(entry)}
+                      onUpdated={(updated) =>
+                        setEntries((prev) => prev.map((e) => e.su_id === updated.su_id ? updated : e))
+                      }
+                    />
+                  )}
+                />
+                {key === 'not_started' && (
+                  <StageScriptButton
+                    label="Create Volumes"
+                    color="#f59e0b"
+                    sourceCount={byStage('not_started').length}
+                    onClick={() => {/* TODO: wire to create_volumes.py */}}
                   />
                 )}
-              />
+                {key === 'volumetrics_created' && (
+                  <StageScriptButton
+                    label="Create SU Sheet"
+                    color="#22c55e"
+                    sourceCount={byStage('volumetrics_created').length}
+                    onClick={() => {/* TODO: wire to create_su_sheet.py */}}
+                  />
+                )}
+              </Fragment>
             ))}
           </div>
 
@@ -219,6 +237,41 @@ export function SUTab() {
           onCreated={(entry) => setEntries((prev) => [entry, ...prev])}
         />
       )}
+    </div>
+  )
+}
+
+function StageScriptButton({ label, color, sourceCount, onClick }: {
+  label: string
+  color: string
+  sourceCount: number
+  onClick: () => void
+}) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: '0 4px', minWidth: 80, alignSelf: 'stretch',
+    }}>
+      <button
+        onClick={onClick}
+        title={`Run on all ${sourceCount} card${sourceCount !== 1 ? 's' : ''} in previous stage`}
+        style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+          padding: '8px 10px', borderRadius: 6,
+          border: `1px dashed ${color}88`,
+          background: `${color}12`,
+          color, fontWeight: 600, fontSize: 11, cursor: 'pointer',
+          whiteSpace: 'nowrap', lineHeight: 1.3,
+        }}
+      >
+        <span style={{ fontSize: 14 }}>▶</span>
+        {label}
+        {sourceCount > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 400, color: `${color}bb` }}>
+            ({sourceCount})
+          </span>
+        )}
+      </button>
     </div>
   )
 }

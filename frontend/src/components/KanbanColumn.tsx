@@ -9,9 +9,10 @@ interface Props<T> {
   count: number
   color?: string
   isValidTarget?: boolean | 'source'
+  minContentHeight?: number
 }
 
-export function KanbanColumn<T>({ id, title, items, renderCard, count, color = '#3b82f6', isValidTarget = true }: Props<T>) {
+export function KanbanColumn<T>({ id, title, items, renderCard, count, color = '#3b82f6', isValidTarget = true, minContentHeight = 120 }: Props<T>) {
   const { setNodeRef, isOver } = useDroppable({ id })
 
   const invalidHover = isOver && isValidTarget === false
@@ -48,7 +49,7 @@ export function KanbanColumn<T>({ id, title, items, renderCard, count, color = '
         style={{
           padding: '10px 10px',
           display: 'flex', flexDirection: 'column', gap: 8,
-          minHeight: 120, flex: 1,
+          minHeight: minContentHeight, flex: 1,
           overflowY: 'auto', maxHeight: 'calc(100vh - 220px)',
         }}
       >

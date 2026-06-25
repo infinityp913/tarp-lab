@@ -139,6 +139,7 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
           )}
         </div>
       </div>
+
     </div>
   )
 }
