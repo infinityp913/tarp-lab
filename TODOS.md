@@ -19,7 +19,9 @@ Next steps:
 - [ x ] Run the backend test suite (`python -m pytest tests/ -v`) on a machine with pytest installed
 - [ x ] End-to-end test on the lab machine: run Overnight on a real `To Overnight` job, confirm it advances to `Processed` and exports land in `GIS_2026/`
 - [ x ] 0 `.psx` in job folder is now a hard failure — script pre-flight check returns error before launching Metashape
-- [ ] Consider surfacing per-job script stdout/errors in the UI (currently logged to `tarp-dashboard.log` only)
+- [ x ] Surface per-job script errors in the UI after a failure (verbose logging stays in `tarp-dashboard.log`)
+  - Branch `feat/surface-script-errors-ui`: reusable `ScriptErrorList` (failed jobs + copyable error text) in the run banner, a per-failure toast, and the error in each failed card's `✗` badge tooltip. Backend already ships `RunJob.error`; no backend change. Built reusable so the future volume-section script buttons feed the same surface.
+  - Verified: `npm run build` (tsc -b typecheck + vite) clean into `backend/static`; runtime check confirms a failed job's `error` surfaces via `runner.get_status()` (the field the UI renders); `pytest` 81 passed. Final visual confirmation (watch the toast/banner/tooltip on a real failed run in the browser) left for the lab user.
 
 ## Pgram-to-Volume Card Automation (feat/pgram-to-volume-card-automation)
 Done:
