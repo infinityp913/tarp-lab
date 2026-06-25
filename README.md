@@ -91,6 +91,10 @@ cd frontend && npm run build
 python3 -m pytest tests/ -v
 ```
 
+> **Windows (PowerShell):**
+> - Use `python` instead of `python3` (e.g. `python -m backend.main --dev`). On Windows `python3` may resolve to another interpreter (e.g. QGIS's bundled Python) that lacks the backend dependencies.
+> - PowerShell doesn't support `&&`. Use `;` instead (e.g. `cd frontend; npm run dev`).
+
 ## Folder naming
 
 Job folders must match `Pgram_Job_###` or `Pgram_Job_###_anything`:
