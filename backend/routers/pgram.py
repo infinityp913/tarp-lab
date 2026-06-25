@@ -181,6 +181,22 @@ def batch_move(req: BatchMoveRequest):
     return {"moved": moved, "failed": failed}
 
 
+# NOTE: the static "/run/status" and "/run/cancel" routes MUST be declared before
+# the dynamic "/run/{kind}" route. FastAPI matches in declaration order, so if
+# "/run/{kind}" came first it would swallow "/run/cancel" as kind="cancel".
+@router.get("/run/status")
+def run_status():
+    return runner.get_status()
+
+
+@router.post("/run/cancel")
+def run_cancel():
+    result = runner.cancel()
+    if not result.get("cancelled"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Nothing to cancel"))
+    return result
+
+
 @router.post("/run/{kind}")
 def start_run(kind: str):
     """Start a batched, per-job Metashape run (kind: alignment | overnight | both)."""
@@ -192,19 +208,6 @@ def start_run(kind: str):
         msg = result.get("error", "Failed to start run")
         status = 409 if "already in progress" in msg else 400
         raise HTTPException(status_code=status, detail=msg)
-    return result
-
-
-@router.get("/run/status")
-def run_status():
-    return runner.get_status()
-
-
-@router.post("/run/cancel")
-def run_cancel():
-    result = runner.cancel()
-    if not result.get("cancelled"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Nothing to cancel"))
     return result
 
 
