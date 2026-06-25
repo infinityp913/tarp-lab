@@ -272,11 +272,12 @@ export function PgramTab({ refreshKey }: Props) {
     if (afterKey === 'to_be_aligned') {
       return (
         <ActionGutter>
-          <GutterButton label="▶ Run" sub="Alignment" color="#8b5cf6" disabled={runActive}
+          <GutterButton label="Run" sub="Alignment" color="#8b5cf6" disabled={runActive}
             title="Align every job in To Be Aligned, advancing each to To Overnight as it succeeds"
             onClick={() => handleRun('alignment')} />
-          <GutterButton label="▶▶ Align +" sub="Overnight" color="#6366f1" disabled={runActive}
+          <GutterButton label="Align +" sub="Overnight" color="#6366f1" disabled={runActive}
             title="Align then overnight each job, advancing it all the way to Processed"
+            icon="▶▶"
             onClick={() => handleRun('both')} />
         </ActionGutter>
       )
@@ -284,7 +285,7 @@ export function PgramTab({ refreshKey }: Props) {
     if (afterKey === 'to_overnight') {
       return (
         <ActionGutter>
-          <GutterButton label="▶ Run" sub="Overnight" color="#22c55e" disabled={runActive}
+          <GutterButton label="Run" sub="Overnight" color="#22c55e" disabled={runActive}
             title="Run the overnight pipeline on every job in To Overnight, advancing each to Processed"
             onClick={() => handleRun('overnight')} />
         </ActionGutter>
@@ -376,7 +377,7 @@ export function PgramTab({ refreshKey }: Props) {
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading jobs…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, alignItems: 'stretch' }}>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, alignItems: 'flex-start' }}>
             {PGRAM_STAGES.map(({ key, label }) => (
               <Fragment key={key}>
                 <KanbanColumn
@@ -456,15 +457,15 @@ function ActionGutter({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8,
-      flexShrink: 0, padding: '0 2px', alignSelf: 'stretch',
+      flexShrink: 0, padding: '0 2px',
     }}>
       {children}
     </div>
   )
 }
 
-function GutterButton({ label, sub, color, onClick, disabled, title }: {
-  label: string; sub: string; color: string; onClick: () => void; disabled?: boolean; title?: string
+function GutterButton({ label, sub, color, onClick, disabled, title, icon }: {
+  label: string; sub: string; color: string; onClick: () => void; disabled?: boolean; title?: string; icon?: string
 }) {
   return (
     <button
@@ -472,14 +473,16 @@ function GutterButton({ label, sub, color, onClick, disabled, title }: {
       disabled={disabled}
       title={title}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
-        width: 92, padding: '8px 6px', borderRadius: 8, cursor: disabled ? 'not-allowed' : 'pointer',
-        border: `1px solid ${color}`, background: disabled ? `${color}14` : `${color}26`,
-        color, fontWeight: 700, lineHeight: 1.2, opacity: disabled ? 0.45 : 1,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+        padding: '8px 10px', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer',
+        border: `1px dashed ${color}88`, background: disabled ? `${color}0a` : `${color}12`,
+        color, fontWeight: 600, fontSize: 11, lineHeight: 1.3,
+        opacity: disabled ? 0.45 : 1, whiteSpace: 'nowrap',
         transition: 'background 0.15s',
       }}
     >
-      <span style={{ fontSize: 12 }}>{label}</span>
+      <span style={{ fontSize: 14 }}>{icon ?? '▶'}</span>
+      <span>{label}</span>
       <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{sub}</span>
     </button>
   )
