@@ -159,7 +159,7 @@ export function SUTab() {
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading SU entries…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, alignItems: 'flex-start' }}>
             {SU_STAGES.map(({ key, label }) => (
               <Fragment key={key}>
                 <KanbanColumn
@@ -169,7 +169,6 @@ export function SUTab() {
                   count={byStage(key).length}
                   color={STAGE_COLORS[key]}
                   isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUMove(draggingEntry.stage, key)) : true}
-                  minContentHeight={key === 'not_started' ? 120 : 300}
                   renderCard={(entry) => (
                     <SUCard
                       key={entry.su_id}
@@ -182,20 +181,20 @@ export function SUTab() {
                   )}
                 />
                 {key === 'not_started' && (
-                  <StageScriptButton
-                    label="Create Volumes"
-                    color="#f59e0b"
-                    sourceCount={byStage('not_started').length}
-                    onClick={() => {/* TODO: wire to create_volumes.py */}}
-                  />
+                  <ActionGutter>
+                    <GutterButton label="Create" sub="Volumes" color="#f59e0b"
+                      count={byStage('not_started').length}
+                      title={`Create volumes for all ${byStage('not_started').length} cards in Not Started`}
+                      onClick={() => {/* TODO: wire to create_volumes.py */}} />
+                  </ActionGutter>
                 )}
                 {key === 'volumetrics_created' && (
-                  <StageScriptButton
-                    label="Create SU Sheet"
-                    color="#22c55e"
-                    sourceCount={byStage('volumetrics_created').length}
-                    onClick={() => {/* TODO: wire to create_su_sheet.py */}}
-                  />
+                  <ActionGutter>
+                    <GutterButton label="Create" sub="SU Sheet" color="#22c55e"
+                      count={byStage('volumetrics_created').length}
+                      title={`Create SU sheet for all ${byStage('volumetrics_created').length} cards in Volumetrics Created`}
+                      onClick={() => {/* TODO: wire to create_su_sheet.py */}} />
+                  </ActionGutter>
                 )}
               </Fragment>
             ))}
@@ -241,38 +240,39 @@ export function SUTab() {
   )
 }
 
-function StageScriptButton({ label, color, sourceCount, onClick }: {
-  label: string
-  color: string
-  sourceCount: number
-  onClick: () => void
-}) {
+function ActionGutter({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      padding: '0 4px', minWidth: 80, alignSelf: 'stretch',
+      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8,
+      flexShrink: 0, padding: '0 2px',
     }}>
-      <button
-        onClick={onClick}
-        title={`Run on all ${sourceCount} card${sourceCount !== 1 ? 's' : ''} in previous stage`}
-        style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-          padding: '8px 10px', borderRadius: 6,
-          border: `1px dashed ${color}88`,
-          background: `${color}12`,
-          color, fontWeight: 600, fontSize: 11, cursor: 'pointer',
-          whiteSpace: 'nowrap', lineHeight: 1.3,
-        }}
-      >
-        <span style={{ fontSize: 14 }}>▶</span>
-        {label}
-        {sourceCount > 0 && (
-          <span style={{ fontSize: 10, fontWeight: 400, color: `${color}bb` }}>
-            ({sourceCount})
-          </span>
-        )}
-      </button>
+      {children}
     </div>
+  )
+}
+
+function GutterButton({ label, sub, color, onClick, title, count }: {
+  label: string; sub: string; color: string; onClick: () => void; title?: string; count?: number
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+        padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
+        border: `1px dashed ${color}88`, background: `${color}12`,
+        color, fontWeight: 600, fontSize: 11, lineHeight: 1.3,
+        whiteSpace: 'nowrap', transition: 'background 0.15s',
+      }}
+    >
+      <span style={{ fontSize: 14 }}>▶</span>
+      <span>{label}</span>
+      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{sub}</span>
+      {count !== undefined && count > 0 && (
+        <span style={{ fontSize: 10, fontWeight: 400, color: `${color}bb` }}>({count})</span>
+      )}
+    </button>
   )
 }
 
