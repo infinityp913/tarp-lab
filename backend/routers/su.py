@@ -14,6 +14,7 @@ from backend.services.launcher import (
     launch_cloudcompare_with_plys,
     launch_meshlab_with_ply,
 )
+from backend.services.volume import annotate_readiness
 from backend.services.volume import provision_from_ply as _provision_from_ply
 
 router = APIRouter(prefix="/api/su", tags=["su"])
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api/su", tags=["su"])
 @router.get("/entries")
 def list_entries():
     rows = gsheets.get_su_rows()
-    return rows
+    return annotate_readiness(rows)
 
 
 @router.post("/entries", status_code=201)

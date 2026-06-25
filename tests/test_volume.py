@@ -92,6 +92,28 @@ def test_skips_pgram_with_no_su_source(patch_sources):
     assert result["skipped"][0]["reason"] == "no SUs in job folder or field tracking"
 
 
+def test_annotate_readiness(monkeypatch):
+    """A card is ready only when BOTH pgrams are known and have a PLY on disk."""
+    monkeypatch.setattr(volume, "scan_ply_files", lambda: [
+        {"pgram_num": 100, "filename": "Pgram_Job_100.ply", "path": "x"},
+        {"pgram_num": 200, "filename": "Pgram_Job_200.ply", "path": "x"},
+    ])
+
+    rows = [
+        {"su_id": "1", "top_pgram": "100", "bot_pgram": "200"},  # both processed → ready
+        {"su_id": "2", "top_pgram": "100", "bot_pgram": "999"},  # bot has no PLY
+        {"su_id": "3", "top_pgram": "100", "bot_pgram": ""},     # bot unknown
+        {"su_id": "4", "top_pgram": "", "bot_pgram": "200"},     # top unknown
+        {"su_id": "5", "top_pgram": "abc", "bot_pgram": "200"},  # top not numeric
+    ]
+
+    out = volume.annotate_readiness(rows)
+
+    assert [r["ready"] for r in out] == [True, False, False, False, False]
+    # Source rows are not mutated.
+    assert "ready" not in rows[0]
+
+
 def test_field_and_folder_sources_union(patch_sources):
     """Field sus_opened and folder su_string both contribute, de-duplicated."""
     upserted = patch_sources(

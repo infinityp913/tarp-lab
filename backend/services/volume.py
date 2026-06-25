@@ -12,6 +12,38 @@ from backend.services.filesystem import scan_filesystem, scan_ply_files
 logger = logging.getLogger(__name__)
 
 
+def ready_pgram_nums() -> set[int]:
+    """Pgram numbers that have a processed model on disk (a PLY file exists).
+
+    A PLY only appears once a pgram reaches the 'processed' stage, so PLY
+    presence is the operative signal that a pgram is processed.
+    """
+    return {ply["pgram_num"] for ply in scan_ply_files()}
+
+
+def is_su_ready(top_pgram: str, bot_pgram: str, ready_nums: set[int]) -> bool:
+    """Whether a volume card is ready for its volume to be extracted.
+
+    Ready means BOTH the top and bottom pgrams are known and processed
+    (their PLY files exist). Only ready cards can have the create-volumes
+    script run on them and be dragged to 'Volume Created'.
+    """
+    def known_and_processed(val: str) -> bool:
+        val = str(val).strip()
+        return val.isdigit() and int(val) in ready_nums
+
+    return known_and_processed(top_pgram) and known_and_processed(bot_pgram)
+
+
+def annotate_readiness(rows: list[dict]) -> list[dict]:
+    """Return copies of SU rows each tagged with a computed `ready` boolean."""
+    ready_nums = ready_pgram_nums()
+    return [
+        {**row, "ready": is_su_ready(row.get("top_pgram", ""), row.get("bot_pgram", ""), ready_nums)}
+        for row in rows
+    ]
+
+
 def _pgram_to_su_string() -> dict[str, str]:
     """Map pgram number string → the job folder's su_string (e.g. "830" → "SU23015-23016").
 

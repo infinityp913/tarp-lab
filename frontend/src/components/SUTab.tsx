@@ -25,6 +25,15 @@ function isValidSUMove(from: string, to: string): boolean {
   return false
 }
 
+/** Whether a card may be dropped onto `to`. On top of the stage ordering, a card
+ *  can only move from Not Started into Volume Created once it is ready to extract
+ *  (both top & bottom PLYs processed). */
+function isValidSUDrop(entry: SUEntry, to: string): boolean {
+  if (!isValidSUMove(entry.stage, to)) return false
+  if (entry.stage === 'not_started' && to === 'volumetrics_created') return !!entry.ready
+  return true
+}
+
 const STAGE_COLORS: Record<string, string> = {
   not_started: '#94a3b8',
   volumetrics_created: '#f59e0b',
@@ -36,6 +45,7 @@ export function SUTab() {
   const [entries, setEntries] = useState<SUEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [trenchFilter, setTrenchFilter] = useState('All Trenches')
+  const [readyFilter, setReadyFilter] = useState<'all' | 'ready' | 'not_ready'>('all')
   const [detailEntry, setDetailEntry] = useState<SUEntry | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [draggingEntry, setDraggingEntry] = useState<SUEntry | null>(null)
@@ -78,10 +88,14 @@ export function SUTab() {
   }
 
   const trenches = [...new Set(entries.map(e => e.trench).filter(Boolean))].sort()
+  const readyCount = entries.filter((e) => e.ready).length
 
-  const filtered = trenchFilter === 'All Trenches'
-    ? entries
-    : entries.filter((e) => e.trench === trenchFilter)
+  const filtered = entries.filter((e) => {
+    if (trenchFilter !== 'All Trenches' && e.trench !== trenchFilter) return false
+    if (readyFilter === 'ready' && !e.ready) return false
+    if (readyFilter === 'not_ready' && e.ready) return false
+    return true
+  })
 
   const byStage = (stageKey: string) =>
     filtered.filter((e) => e.stage === stageKey)
@@ -107,8 +121,12 @@ export function SUTab() {
     const entry = entries.find((e) => e.su_id === suId)
     if (!entry || entry.stage === targetStage) return
 
-    if (!isValidSUMove(entry.stage, targetStage)) {
-      toast('Volume must be created first before other stages', 'error')
+    if (!isValidSUDrop(entry, targetStage)) {
+      if (entry.stage === 'not_started' && targetStage === 'volumetrics_created' && !entry.ready) {
+        toast('Not ready: both top & bottom PLYs must be processed before the volume can be created', 'error')
+      } else {
+        toast('Volume must be created first before other stages', 'error')
+      }
       return
     }
 
@@ -144,9 +162,26 @@ export function SUTab() {
             <button onClick={() => setTrenchFilter('All Trenches')} style={chipClear} title="Clear filter">✕</button>
           </span>
         )}
+        <select
+          value={readyFilter}
+          onChange={(e) => setReadyFilter(e.target.value as typeof readyFilter)}
+          style={selectStyle}
+          title="Filter by whether the volume is ready to be extracted"
+        >
+          <option value="all">All readiness</option>
+          <option value="ready">✓ Ready to extract</option>
+          <option value="not_ready">Not ready</option>
+        </select>
+        {readyFilter !== 'all' && (
+          <span style={filterChip}>
+            {readyFilter === 'ready' ? '✓ Ready' : 'Not ready'}
+            <button onClick={() => setReadyFilter('all')} style={chipClear} title="Clear filter">✕</button>
+          </span>
+        )}
         <span style={{ fontSize: 13, color: T.textMuted }}>
           {filtered.length} entr{filtered.length !== 1 ? 'ies' : 'y'}
-          {trenchFilter !== 'All Trenches' && ` of ${entries.length}`}
+          {(trenchFilter !== 'All Trenches' || readyFilter !== 'all') && ` of ${entries.length}`}
+          {` · ${readyCount} ready`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
         <button onClick={handleScanPly} disabled={scanning} style={scanBtn} title="Scan PLY directory and auto-create volume cards">
@@ -168,7 +203,7 @@ export function SUTab() {
                   items={byStage(key)}
                   count={byStage(key).length}
                   color={STAGE_COLORS[key]}
-                  isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUMove(draggingEntry.stage, key)) : true}
+                  isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUDrop(draggingEntry, key)) : true}
                   renderCard={(entry) => (
                     <SUCard
                       key={entry.su_id}
@@ -183,9 +218,9 @@ export function SUTab() {
                 {key === 'not_started' && (
                   <ActionGutter>
                     <GutterButton label="Create" sub="Volumes" color="#f59e0b"
-                      count={byStage('not_started').length}
-                      title={`Create volumes for all ${byStage('not_started').length} cards in Not Started`}
-                      onClick={() => {/* TODO: wire to create_volumes.py */}} />
+                      count={byStage('not_started').filter((e) => e.ready).length}
+                      title={`Create volumes for the ${byStage('not_started').filter((e) => e.ready).length} ready card(s) in Not Started (cards without both PLYs processed are skipped)`}
+                      onClick={() => {/* TODO: wire to create_volumes.py — runs only on ready cards */}} />
                   </ActionGutter>
                 )}
                 {key === 'volumetrics_created' && (

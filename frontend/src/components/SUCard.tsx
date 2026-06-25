@@ -75,7 +75,17 @@ export function SUCard({ entry, onClick, onUpdated }: Props) {
       onClick={onClick}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <span style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{entry.su_id}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{entry.su_id}</span>
+          {entry.ready && (
+            <span
+              style={readyBadge}
+              title="Ready to extract — both top & bottom PLYs are processed"
+            >
+              ✓ Ready
+            </span>
+          )}
+        </span>
         <span style={{ color: T.textMuted, fontSize: 14, lineHeight: 1 }} title="Drag to move">⠿</span>
       </div>
 
@@ -152,6 +162,14 @@ const cardStyle: React.CSSProperties = {
   cursor: 'grab',
   border: `1px solid ${T.border}`,
   userSelect: 'none',
+}
+
+const readyBadge: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 3,
+  background: '#22c55e22', color: '#22c55e',
+  border: '1px solid #22c55e66', borderRadius: 20,
+  padding: '0 7px', fontSize: 10, fontWeight: 700,
+  lineHeight: 1.7, letterSpacing: '0.02em', whiteSpace: 'nowrap',
 }
 
 const plyBtn: React.CSSProperties = {

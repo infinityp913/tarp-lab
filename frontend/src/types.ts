@@ -18,6 +18,9 @@ export interface SUEntry {
   stage: string
   notes: string
   last_updated: string
+  /** Computed server-side: both top & bottom pgrams are processed (PLYs exist),
+   *  so the volume is ready to be extracted. */
+  ready?: boolean
 }
 
 export const PGRAM_STAGES = [
