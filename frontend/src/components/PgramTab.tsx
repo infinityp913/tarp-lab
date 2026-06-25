@@ -14,6 +14,8 @@ import { KanbanColumn } from './KanbanColumn'
 import { JobCard } from './JobCard'
 import { JobDetailModal } from './JobDetailModal'
 import { ConfirmationModal } from './ConfirmationModal'
+import { ScriptErrorList } from './ScriptErrorList'
+import type { ScriptError } from './ScriptErrorList'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
@@ -66,6 +68,9 @@ export function PgramTab({ refreshKey }: Props) {
   const [moving, setMoving] = useState<{ to: string; count: number } | null>(null)
   const [fixingNames, setFixingNames] = useState(false)
   const pollingRef = useRef(false)
+  // Track jobs already toasted as failed, scoped to one run (keyed by started_at),
+  // so a failure toasts exactly once even though we poll every 2.5s.
+  const failedToastedRef = useRef<{ key: string | null; ids: Set<string> }>({ key: null, ids: new Set() })
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -105,6 +110,18 @@ export function PgramTab({ refreshKey }: Props) {
       return
     }
     setRun(status.jobs.length ? status : null)
+
+    // Toast each newly-failed job once (immediate notice even on another tab/column).
+    if (failedToastedRef.current.key !== status.started_at) {
+      failedToastedRef.current = { key: status.started_at, ids: new Set() }
+    }
+    for (const j of status.jobs) {
+      if (j.status === 'failed' && !failedToastedRef.current.ids.has(j.job_id)) {
+        failedToastedRef.current.ids.add(j.job_id)
+        toast(`✗ ${j.job_id}${j.step ? ` — ${j.step}` : ''} failed`, 'error')
+      }
+    }
+
     await load()  // reflect folders the backend just moved
     if (status.active) {
       window.setTimeout(() => { pollOnce() }, 2500)
@@ -399,6 +416,7 @@ export function PgramTab({ refreshKey }: Props) {
                         nextStageLabel={next ? `Move to ${stageLabel(next)}` : undefined}
                         runStatus={rj?.status}
                         runStep={rj?.step}
+                        runError={rj?.error}
                       />
                     )
                   }}
@@ -514,34 +532,43 @@ function RunBanner({ run, onCancel, onDismiss }: {
 }) {
   const total = run.jobs.length
   const done = run.jobs.filter((j) => j.status === 'done').length
-  const failed = run.jobs.filter((j) => j.status === 'failed').length
+  const failedJobs = run.jobs.filter((j) => j.status === 'failed')
+  const failed = failedJobs.length
   const running = run.jobs.find((j) => j.status === 'running')
   const pct = total ? Math.round(((done + failed) / total) * 100) : 0
+  const errors: ScriptError[] = failedJobs.map((j) => ({
+    label: j.job_id,
+    step: j.step,
+    error: j.error || 'Failed (no error detail captured — see tarp-dashboard.log).',
+  }))
 
   return (
-    <div style={runBannerStyle}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>
-          {run.active
-            ? `Running ${run.kind}${run.cancel ? ' (stopping…)' : ''}`
-            : `Finished ${run.kind}`}
-          {' · '}{done}/{total} done{failed ? ` · ${failed} failed` : ''}
-          {running && <span style={{ color: T.textSub, fontWeight: 500 }}>{`  ·  now: ${running.job_id}${running.step ? ` (${running.step})` : ''}`}</span>}
+    <div style={{ ...runBannerStyle, flexDirection: 'column', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+            {run.active
+              ? `Running ${run.kind}${run.cancel ? ' (stopping…)' : ''}`
+              : `Finished ${run.kind}`}
+            {' · '}{done}/{total} done{failed ? ` · ${failed} failed` : ''}
+            {running && <span style={{ color: T.textSub, fontWeight: 500 }}>{`  ·  now: ${running.job_id}${running.step ? ` (${running.step})` : ''}`}</span>}
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: T.badgeBg, overflow: 'hidden' }}>
+            <div style={{
+              width: `${pct}%`, height: '100%',
+              background: failed ? '#ef4444' : '#22c55e', transition: 'width 0.4s',
+            }} />
+          </div>
         </div>
-        <div style={{ height: 6, borderRadius: 3, background: T.badgeBg, overflow: 'hidden' }}>
-          <div style={{
-            width: `${pct}%`, height: '100%',
-            background: failed ? '#ef4444' : '#22c55e', transition: 'width 0.4s',
-          }} />
-        </div>
+        {run.active ? (
+          <button onClick={onCancel} disabled={run.cancel} style={runBannerBtn} title="Stop after the current job">
+            ⏹ Stop
+          </button>
+        ) : (
+          <button onClick={onDismiss} style={runBannerBtn} title="Dismiss">✕</button>
+        )}
       </div>
-      {run.active ? (
-        <button onClick={onCancel} disabled={run.cancel} style={runBannerBtn} title="Stop after the current job">
-          ⏹ Stop
-        </button>
-      ) : (
-        <button onClick={onDismiss} style={runBannerBtn} title="Dismiss">✕</button>
-      )}
+      <ScriptErrorList errors={errors} />
     </div>
   )
 }

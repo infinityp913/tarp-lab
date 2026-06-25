@@ -13,6 +13,7 @@ interface Props {
   nextStageLabel?: string         // tooltip for the → arrow, e.g. "Move to To Overnight"
   runStatus?: RunJobStatus        // this job's state in the active run, if any
   runStep?: string | null         // which script is running (alignment / overnight)
+  runError?: string | null        // failure detail, shown in the failed badge's tooltip
 }
 
 const RUN_BADGE: Record<RunJobStatus, { icon: string; color: string; bg: string }> = {
@@ -23,7 +24,7 @@ const RUN_BADGE: Record<RunJobStatus, { icon: string; color: string; bg: string 
   cancelled: { icon: '⊘',  color: '#cbd5e1', bg: '#33415555' },
 }
 
-export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, runStep }: Props) {
+export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, runStep, runError }: Props) {
   const {
     attributes, listeners, setNodeRef, transform, isDragging,
   } = useDraggable({ id: job.job_id })
@@ -60,11 +61,16 @@ export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, ru
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {runStatus && (
             <span
-              title={runStep ? `${runStatus} — ${runStep}` : runStatus}
+              title={
+                runStatus === 'failed' && runError
+                  ? `failed${runStep ? ` — ${runStep}` : ''}\n\n${runError}`
+                  : runStep ? `${runStatus} — ${runStep}` : runStatus
+              }
               style={{
                 fontSize: 10, fontWeight: 700, lineHeight: 1.4, borderRadius: 10,
                 padding: '1px 6px', color: RUN_BADGE[runStatus].color, background: RUN_BADGE[runStatus].bg,
                 display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap',
+                cursor: runStatus === 'failed' && runError ? 'help' : undefined,
               }}
             >
               {RUN_BADGE[runStatus].icon}{runStatus === 'running' && runStep ? ` ${runStep}` : ''}
