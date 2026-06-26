@@ -9,6 +9,7 @@ from backend.services.gsheets import (
     PG_COLS, PG_NUM, PG_TRENCH, PG_NOTES, PG_UPDATED,
     SU_COLS, SU_ID, SU_TOP_PGRAM, SU_BOT_PGRAM, SU_VOL, SU_SHEET, SU_AIR, SU_NOTES,
     _pg_num_str,
+    _blank_if_na,
     _job_to_row,
     _su_to_row,
     _rows_to_pgram,
@@ -181,6 +182,97 @@ def test_rows_to_su_pads_short_rows():
     result = _rows_to_su(rows, "18000")
     assert len(result) == 1
     assert result[0]["su_id"] == "SU003"
+
+
+# ─── _blank_if_na ────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("val", ["NA", "na", "N/A", "n/a", "Na", "N/a", "#N/A", "#n/a"])
+def test_blank_if_na_returns_empty_for_na_variants(val):
+    assert _blank_if_na(val) == ""
+
+
+@pytest.mark.parametrize("val", ["", "  "])
+def test_blank_if_na_returns_empty_for_blank_and_whitespace(val):
+    assert _blank_if_na(val) == ""
+
+
+@pytest.mark.parametrize("val", ["  na  ", "  N/A  "])
+def test_blank_if_na_returns_empty_for_whitespace_padded_na(val):
+    assert _blank_if_na(val) == ""
+
+
+def test_blank_if_na_returns_empty_for_none():
+    assert _blank_if_na(None) == ""
+
+
+@pytest.mark.parametrize("val", [True, False])
+def test_blank_if_na_returns_empty_for_bool(val):
+    assert _blank_if_na(val) == ""
+
+
+@pytest.mark.parametrize("val,expected", [
+    ("21015", "21015"),
+    ("21015, 21020", "21015, 21020"),
+    ("SU21015", "SU21015"),
+])
+def test_blank_if_na_preserves_real_values(val, expected):
+    assert _blank_if_na(val) == expected
+
+
+def test_field_pgram_map_treats_na_as_blank(monkeypatch):
+    import backend.services.gsheets as gs
+
+    fake_rows = [
+        ["Pgram", "SUs Opened", "SUs Closed", "Notes", "Stage", "Updated"],
+        [696, "N/A", "na", "some note", "", ""],
+        [697, "21015", "21020", "", "", ""],
+    ]
+    monkeypatch.setattr(gs, "_read_range", lambda _: fake_rows)
+
+    result = gs._read_field_pgram_map()
+    assert result["696"]["sus_opened"] == ""
+    assert result["696"]["sus_closed"] == ""
+    assert result["697"]["sus_opened"] == "21015"
+    assert result["697"]["sus_closed"] == "21020"
+
+
+def test_field_pgram_map_returns_empty_when_no_rows(monkeypatch):
+    import backend.services.gsheets as gs
+
+    monkeypatch.setattr(gs, "_read_range", lambda _: None)
+    assert gs._read_field_pgram_map() == {}
+
+    monkeypatch.setattr(gs, "_read_range", lambda _: [])
+    assert gs._read_field_pgram_map() == {}
+
+
+def test_field_pgram_map_skips_empty_and_no_num_rows(monkeypatch):
+    import backend.services.gsheets as gs
+
+    fake_rows = [
+        ["Pgram", "SUs Opened", "SUs Closed", "Notes", "Stage", "Updated"],
+        [],                                    # empty row
+        ["", "21015", "21020", "", "", ""],    # missing pgram number
+        [698, "21030", "21031", "", "", ""],   # valid
+    ]
+    monkeypatch.setattr(gs, "_read_range", lambda _: fake_rows)
+
+    result = gs._read_field_pgram_map()
+    assert list(result.keys()) == ["698"]
+
+
+def test_field_pgram_map_pads_short_rows(monkeypatch):
+    import backend.services.gsheets as gs
+
+    fake_rows = [
+        ["Pgram", "SUs Opened", "SUs Closed", "Notes", "Stage", "Updated"],
+        [699],   # only pgram number, rest missing
+    ]
+    monkeypatch.setattr(gs, "_read_range", lambda _: fake_rows)
+
+    result = gs._read_field_pgram_map()
+    assert result["699"]["sus_opened"] == ""
+    assert result["699"]["sus_closed"] == ""
 
 
 # ─── cache invalidation (unit, no real Sheets API) ───────────────────────────
