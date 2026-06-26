@@ -513,6 +513,19 @@ def _rows_to_pgram(rows: list[list]) -> list[dict]:
     return result
 
 
+# Lowercase-only; callers must .lower() before membership test (done inside _blank_if_na).
+# Includes "#n/a" which is the text Google Sheets sends for #N/A formula error cells.
+_NA_VALUES = frozenset({"na", "n/a", "#n/a"})
+
+
+def _blank_if_na(val) -> str:
+    """Return '' if val is None, bool, blank, or a NA variant (NA, na, N/A, n/a, #N/A)."""
+    if val is None or isinstance(val, bool):
+        return ""
+    s = str(val).strip()
+    return "" if s.lower() in _NA_VALUES else s
+
+
 def _read_field_pgram_map() -> dict[str, dict]:
     """Read TARP Field Pgram Tracking and return dict keyed by pgram number string.
     Returns empty dict if the sheet doesn't exist or can't be read."""
@@ -529,9 +542,9 @@ def _read_field_pgram_map() -> dict[str, dict]:
             continue
         num = _pg_num_str(str(row[FP_NUM]))
         result[num] = {
-            "sus_opened": str(row[FP_SUS_OPENED]),
-            "sus_closed": str(row[FP_SUS_CLOSED]),
-            "notes_from_field": str(row[FP_NOTES]),
+            "sus_opened": _blank_if_na(row[FP_SUS_OPENED]),
+            "sus_closed": _blank_if_na(row[FP_SUS_CLOSED]),
+            "notes_from_field": str(row[FP_NOTES]),  # intentionally not NA-normalised
         }
     return result
 
