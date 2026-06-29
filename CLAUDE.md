@@ -6,8 +6,8 @@ Two parallel websites: **tarp-lab** (this repo, dark mode, Windows + Mac) and **
 
 ## Running locally
 ```bash
-# Backend (from repo root)
-uvicorn backend.main:app --reload
+# Backend (from repo root) — handles OAuth, hot-reload, dev_base_path
+python3 -m backend.main --dev
 
 # Frontend (separate terminal)
 cd frontend && npm run dev

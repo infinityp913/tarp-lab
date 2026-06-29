@@ -81,3 +81,29 @@ def launch_qgis(job: Optional[PgramJob] = None) -> dict:
             "error": "QGIS not found. Set the path in config.yaml.",
         }
     return _open(cfg.qgis_path)
+
+
+def launch_cloudcompare_with_bins(bin_paths: list[Path]) -> dict:
+    """Open one or more .bin files in CloudCompare."""
+    cfg = get_config()
+    args: list[str] = []
+    for p in bin_paths:
+        args += ["-O", str(p)]
+    return _open(cfg.cloudcompare_path, args)
+
+
+def open_file_default(file_path: Path) -> dict:
+    """Open a file with the OS default application (Preview for images, default viewer for OBJ)."""
+    if not file_path.exists():
+        return {"launched": False, "error": f"File not found: {file_path}"}
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(file_path)])
+        elif sys.platform == "win32":
+            import os
+            os.startfile(str(file_path))
+        else:
+            subprocess.Popen(["xdg-open", str(file_path)])
+        return {"launched": True}
+    except Exception as e:
+        return {"launched": False, "error": str(e)}

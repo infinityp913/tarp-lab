@@ -1,4 +1,4 @@
-import type { SUEntry } from '../types'
+import type { SUEntry, VolumeRunKind, VolumeRunStatus } from '../types'
 
 export async function fetchEntries(): Promise<SUEntry[]> {
   const res = await fetch('/api/su/entries')
@@ -24,16 +24,21 @@ export async function createEntry(data: {
   return res.json()
 }
 
-export async function updateStage(suId: string, targetStage: string): Promise<void> {
+export async function updateStage(
+  suId: string,
+  targetStage: string,
+  confirmed = false,
+): Promise<{ requires_confirmation?: boolean; message?: string; ok?: boolean }> {
   const res = await fetch(`/api/su/entries/${suId}/stage`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target_stage: targetStage }),
+    body: JSON.stringify({ target_stage: targetStage, confirmed }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)
   }
+  return res.json()
 }
 
 export async function updatePgrams(suId: string, topPgram: string, botPgram: string): Promise<void> {
@@ -89,6 +94,53 @@ export async function openBothPly(suId: string): Promise<void> {
   }
 }
 
+export async function openBins(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-bins`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function openVolume(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-volume`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function openDebugImage(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-debug-image`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function startVolumeRun(kind: VolumeRunKind): Promise<{ started: boolean; count?: number }> {
+  const res = await fetch(`/api/su/run/${kind}`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
+
+export async function getVolumeRunStatus(): Promise<VolumeRunStatus> {
+  const res = await fetch('/api/su/run/status')
+  if (!res.ok) throw new Error(res.statusText)
+  return res.json()
+}
+
+export async function cancelVolumeRun(): Promise<void> {
+  const res = await fetch('/api/su/run/cancel', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function pullFieldData(): Promise<{ total: number; with_field_data: number }> {
   const res = await fetch('/api/sheets/pull', { method: 'POST' })
   if (!res.ok) {
@@ -100,6 +152,24 @@ export async function pullFieldData(): Promise<{ total: number; with_field_data:
 
 export async function syncSheets(): Promise<{ pgram_count: number; su_count: number }> {
   const res = await fetch('/api/sheets/sync', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
+
+export async function batchMoveToPreSnip(): Promise<{ moved: number; skipped: number; detail?: string }> {
+  const res = await fetch('/api/su/batch-move-to-pre-snip', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+  return res.json()
+}
+
+export async function startChainRun(): Promise<{ started: boolean; kind?: string; count?: number; error?: string }> {
+  const res = await fetch('/api/su/run/chain', { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)

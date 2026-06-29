@@ -1,41 +1,57 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
-import { fetchEntries, provisionFromPly, updateStage } from '../api/su'
-import type { SUEntry } from '../types'
+import {
+  fetchEntries, provisionFromPly, updateStage,
+  startVolumeRun, getVolumeRunStatus, startChainRun,
+  batchMoveToPreSnip,
+} from '../api/su'
+import type { SUEntry, VolumeRunKind, VolumeRunStatus } from '../types'
 import { SU_STAGES } from '../types'
 import { KanbanColumn } from './KanbanColumn'
 import { SUCard } from './SUCard'
 import { SUDetailModal } from './SUDetailModal'
 import { CreateSUModal } from './CreateSUModal'
+import { ConfirmationModal } from './ConfirmationModal'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
+const SU_ORDER = [
+  'not_started',
+  'to_be_pre_snipped',
+  'to_be_snipped',
+  'to_be_post_snipped',
+  'volumetrics_created',
+  'su_sheet_created',
+  'uploaded_air',
+]
+
 function isValidSUMove(from: string, to: string): boolean {
   if (from === to) return false
-  const ORDER = ['not_started', 'volumetrics_created', 'su_sheet_created', 'uploaded_air']
-  const fi = ORDER.indexOf(from)
-  const ti = ORDER.indexOf(to)
-  if (ti < fi) return true  // backward always OK
-  if (from === 'not_started') return to === 'volumetrics_created'
-  if (from === 'volumetrics_created') return to === 'su_sheet_created' || to === 'uploaded_air'
-  if (from === 'su_sheet_created') return to === 'uploaded_air'
-  return false
+  const fi = SU_ORDER.indexOf(from)
+  const ti = SU_ORDER.indexOf(to)
+  if (fi < 0 || ti < 0) return false
+  // Backward always OK; forward: one step at a time, except:
+  // - not_started → to_be_pre_snipped (one step)
+  // - to_be_snipped → to_be_post_snipped (manual snip, confirmed via dialog)
+  if (ti < fi) return true
+  return ti === fi + 1
 }
 
-/** Whether a card may be dropped onto `to`. On top of the stage ordering, a card
- *  can only move from Not Started into Volume Created once it is ready to extract
- *  (both top & bottom PLYs processed). */
+/** Extra gate: forward from not_started requires ready flag; others just check step */
 function isValidSUDrop(entry: SUEntry, to: string): boolean {
   if (!isValidSUMove(entry.stage, to)) return false
-  if (entry.stage === 'not_started' && to === 'volumetrics_created') return !!entry.ready
+  if (entry.stage === 'not_started' && to === 'to_be_pre_snipped') return !!entry.ready
   return true
 }
 
 const STAGE_COLORS: Record<string, string> = {
   not_started: '#94a3b8',
+  to_be_pre_snipped: '#f97316',
+  to_be_snipped: '#8b5cf6',
+  to_be_post_snipped: '#ec4899',
   volumetrics_created: '#f59e0b',
   su_sheet_created: '#22c55e',
   uploaded_air: '#0ea5e9',
@@ -50,6 +66,33 @@ export function SUTab() {
   const [showCreate, setShowCreate] = useState(false)
   const [draggingEntry, setDraggingEntry] = useState<SUEntry | null>(null)
   const [scanning, setScanning] = useState(false)
+  const [volRun, setVolRun] = useState<VolumeRunStatus | null>(null)
+  const [confirmState, setConfirmState] = useState<{
+    message: string; suId: string; targetStage: string
+  } | null>(null)
+  const [batchMoveState, setBatchMoveState] = useState<{ loading: boolean }>({ loading: false })
+  const pollingRef = useRef(false)
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+  const phantomRef = useRef<HTMLDivElement>(null)
+
+  // Keep top scrollbar phantom width in sync with actual content scrollWidth after every render
+  useEffect(() => {
+    const content = contentScrollRef.current
+    const phantom = phantomRef.current
+    if (content && phantom) phantom.style.width = `${content.scrollWidth}px`
+  })
+
+  function handleTopScroll() {
+    if (contentScrollRef.current && topScrollRef.current) {
+      contentScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft
+    }
+  }
+  function handleContentScroll() {
+    if (contentScrollRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = contentScrollRef.current.scrollLeft
+    }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -67,6 +110,52 @@ export function SUTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // --- Volume run polling ---
+  const pollOnce = useCallback(async () => {
+    let status: VolumeRunStatus
+    try {
+      status = await getVolumeRunStatus()
+    } catch {
+      pollingRef.current = false
+      return
+    }
+    setVolRun(status.status !== 'idle' ? status : null)
+    await load()
+    if (status.active) {
+      window.setTimeout(pollOnce, 2500)
+    } else {
+      pollingRef.current = false
+      if (status.status === 'done') {
+        toast(`Script finished — ${status.cards_advanced} card${status.cards_advanced !== 1 ? 's' : ''} advanced`, 'success')
+      } else if (status.status === 'failed') {
+        toast(`Script failed: ${status.error || 'unknown error'}`, 'error')
+      }
+    }
+  }, [load])
+
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return
+    pollingRef.current = true
+    pollOnce()
+  }, [pollOnce])
+
+  // Resume polling if a run is already in flight
+  useEffect(() => {
+    getVolumeRunStatus()
+      .then((s) => { if (s.active) startPolling() })
+      .catch(() => {})
+  }, [startPolling])
+
+  async function handleVolumeRun(kind: VolumeRunKind) {
+    try {
+      const r = await startVolumeRun(kind)
+      toast(`Started ${kind.replace('_', '-')} on ${r.count ?? 0} card${r.count === 1 ? '' : 's'}…`, 'info')
+      startPolling()
+    } catch (e: unknown) {
+      toast((e as Error).message, 'error')
+    }
+  }
 
   async function handleScanPly() {
     setScanning(true)
@@ -122,28 +211,90 @@ export function SUTab() {
     if (!entry || entry.stage === targetStage) return
 
     if (!isValidSUDrop(entry, targetStage)) {
-      if (entry.stage === 'not_started' && targetStage === 'volumetrics_created' && !entry.ready) {
-        toast('Not ready: both top & bottom PLYs must be processed before the volume can be created', 'error')
+      if (entry.stage === 'not_started' && targetStage === 'to_be_pre_snipped' && !entry.ready) {
+        toast('Not ready: both top & bottom PLYs must be processed before queuing for pre-snip', 'error')
+      } else if (entry.stage === 'not_started' && targetStage === 'volumetrics_created') {
+        toast('Use the snip pipeline — drag to To Be Pre-Snipped first', 'error')
       } else {
-        toast('Volume must be created first before other stages', 'error')
+        toast('Move one step at a time', 'error')
       }
       return
     }
 
-    setEntries((prev) =>
-      prev.map((e) => e.su_id === suId ? { ...e, stage: targetStage } : e)
-    )
+    await requestMove(suId, targetStage, entry)
+  }
 
+  async function requestMove(suId: string, targetStage: string, entry?: SUEntry) {
+    const e = entry ?? entries.find((en) => en.su_id === suId)
+    if (!e) return
+
+    // Check if this transition requires confirmation (e.g. manual snip drag)
+    const result = await updateStage(suId, targetStage, false)
+    if (result.requires_confirmation && result.message) {
+      setConfirmState({ message: result.message, suId, targetStage })
+      return
+    }
+
+    applyMove(suId, targetStage)
+  }
+
+  async function handleConfirm() {
+    if (!confirmState) return
+    const { suId, targetStage } = confirmState
+    setConfirmState(null)
     try {
-      await updateStage(suId, targetStage)
+      await updateStage(suId, targetStage, true)
+      applyMove(suId, targetStage)
       toast('Stage updated', 'success')
     } catch (err: unknown) {
-      setEntries((prev) =>
-        prev.map((e) => e.su_id === suId ? { ...e, stage: entry.stage } : e)
-      )
       toast((err as Error).message || 'Failed to update stage', 'error')
     }
   }
+
+  function applyMove(suId: string, targetStage: string) {
+    setEntries((prev) =>
+      prev.map((e) => e.su_id === suId ? { ...e, stage: targetStage } : e)
+    )
+  }
+
+  async function handleChainRun() {
+    try {
+      const r = await startChainRun()
+      toast(`Started full pipeline chain on ${r.count ?? 0} card stage(s)…`, 'info')
+      startPolling()
+    } catch (e: unknown) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  async function handleBatchMoveToPreSnip() {
+    setBatchMoveState({ loading: true })
+    try {
+      const r = await batchMoveToPreSnip()
+      if (r.moved === 0) {
+        toast(r.detail ?? 'No ready cards in Not Started to move', 'error')
+      } else {
+        toast(`Moved ${r.moved} ready card${r.moved !== 1 ? 's' : ''} to To Be Pre-Snipped${r.skipped ? ` (${r.skipped} failed)` : ''}`, 'success')
+        await load()
+      }
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Batch move failed', 'error')
+    } finally {
+      setBatchMoveState({ loading: false })
+    }
+  }
+
+  function nextSUStage(stage: string): string | null {
+    const idx = SU_ORDER.indexOf(stage)
+    if (idx < 0 || idx >= SU_ORDER.length - 1) return null
+    return SU_ORDER[idx + 1]
+  }
+
+  function stageLabel(key: string): string {
+    return SU_STAGES.find((s) => s.key === key)?.label ?? key
+  }
+
+  const runActive = volRun?.active ?? false
 
   return (
     <div>
@@ -169,7 +320,7 @@ export function SUTab() {
           title="Filter by whether the volume is ready to be extracted"
         >
           <option value="all">All readiness</option>
-          <option value="ready">✓ Ready to extract</option>
+          <option value="ready">Ready to extract</option>
           <option value="not_ready">Not ready</option>
         </select>
         {readyFilter !== 'all' && (
@@ -190,11 +341,34 @@ export function SUTab() {
         <button onClick={() => setShowCreate(true)} style={addBtn}>+ New SU Entry</button>
       </div>
 
+      {volRun && volRun.status !== 'idle' && (
+        <VolumeRunBanner run={volRun} onDismiss={() => setVolRun(null)} />
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48, color: T.textSub }}>Loading SU entries…</div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, alignItems: 'flex-start' }}>
+          {/* Top scrollbar — synced with content below */}
+          <style>{`
+            .su-top-scroll::-webkit-scrollbar { height: 10px; }
+            .su-top-scroll::-webkit-scrollbar-track { background: transparent; }
+            .su-top-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 5px; }
+            .su-top-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
+          `}</style>
+          <div
+            ref={topScrollRef}
+            className="su-top-scroll"
+            onScroll={handleTopScroll}
+            style={{ overflowX: 'auto', overflowY: 'hidden', height: 14, marginBottom: 4 }}
+          >
+            <div ref={phantomRef} style={{ height: 1 }} />
+          </div>
+          <div
+            ref={contentScrollRef}
+            onScroll={handleContentScroll}
+            style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, alignItems: 'flex-start' }}
+          >
             {SU_STAGES.map(({ key, label }) => (
               <Fragment key={key}>
                 <KanbanColumn
@@ -204,31 +378,83 @@ export function SUTab() {
                   count={byStage(key).length}
                   color={STAGE_COLORS[key]}
                   isValidTarget={draggingEntry ? (draggingEntry.stage === key ? 'source' : isValidSUDrop(draggingEntry, key)) : true}
-                  renderCard={(entry) => (
-                    <SUCard
-                      key={entry.su_id}
-                      entry={entry}
-                      onClick={() => setDetailEntry(entry)}
-                      onUpdated={(updated) =>
-                        setEntries((prev) => prev.map((e) => e.su_id === updated.su_id ? updated : e))
-                      }
-                    />
-                  )}
+                  renderCard={(entry) => {
+                    const next = nextSUStage(entry.stage)
+                    return (
+                      <SUCard
+                        key={entry.su_id}
+                        entry={entry}
+                        onClick={() => setDetailEntry(entry)}
+                        onUpdated={(updated) =>
+                          setEntries((prev) => prev.map((e) => e.su_id === updated.su_id ? updated : e))
+                        }
+                        onAdvance={next ? () => requestMove(entry.su_id, next, entry) : undefined}
+                        nextStageLabel={next ? `Move to ${stageLabel(next)}` : undefined}
+                      />
+                    )
+                  }}
                 />
+
+                {/* Gutter buttons between columns */}
                 {key === 'not_started' && (
                   <ActionGutter>
-                    <GutterButton label="Create" sub="Volumes" color="#f59e0b"
+                    <GutterButton
+                      label="Move Ready" sub="→ Pre-Snip" color="#94a3b8"
+                      disabled={batchMoveState.loading || runActive}
                       count={byStage('not_started').filter((e) => e.ready).length}
-                      title={`Create volumes for the ${byStage('not_started').filter((e) => e.ready).length} ready card(s) in Not Started (cards without both PLYs processed are skipped)`}
-                      onClick={() => {/* TODO: wire to create_volumes.py — runs only on ready cards */}} />
+                      title={`Move all ${byStage('not_started').filter((e) => e.ready).length} ready card(s) from Not Started to To Be Pre-Snipped`}
+                      onClick={handleBatchMoveToPreSnip}
+                    />
+                    <GutterButton
+                      label="Run All" sub="Pipeline" color="#6366f1"
+                      icon="▶▶"
+                      disabled={runActive}
+                      title="Run the full pipeline chain: move ready cards → pre-snip → auto-snip → post-snip → SU Sheet Created"
+                      onClick={handleChainRun}
+                    />
+                  </ActionGutter>
+                )}
+                {key === 'to_be_pre_snipped' && (
+                  <ActionGutter>
+                    <GutterButton
+                      label="Pre-Snip" sub="Script" color="#f97316"
+                      disabled={runActive}
+                      count={byStage('to_be_pre_snipped').length}
+                      title={`Run pre_snip_script.py on ${byStage('to_be_pre_snipped').length} card(s) in To Be Pre-Snipped`}
+                      onClick={() => handleVolumeRun('pre_snip')}
+                    />
+                  </ActionGutter>
+                )}
+                {key === 'to_be_snipped' && (
+                  <ActionGutter>
+                    <GutterButton
+                      label="Auto-Snip" sub="Script" color="#8b5cf6"
+                      disabled={runActive}
+                      count={byStage('to_be_snipped').length}
+                      title={`Run auto_snip_script.py on ${byStage('to_be_snipped').length} card(s) in To Be Snipped — or manually snip in CloudCompare and drag the card`}
+                      onClick={() => handleVolumeRun('auto_snip')}
+                    />
+                  </ActionGutter>
+                )}
+                {key === 'to_be_post_snipped' && (
+                  <ActionGutter>
+                    <GutterButton
+                      label="Post-Snip" sub="Script" color="#ec4899"
+                      disabled={runActive}
+                      count={byStage('to_be_post_snipped').length}
+                      title={`Run post_snip_script.py on ${byStage('to_be_post_snipped').length} card(s) in To Be Post-Snipped`}
+                      onClick={() => handleVolumeRun('post_snip')}
+                    />
                   </ActionGutter>
                 )}
                 {key === 'volumetrics_created' && (
                   <ActionGutter>
                     <GutterButton label="Create" sub="SU Sheet" color="#22c55e"
+                      disabled={runActive}
                       count={byStage('volumetrics_created').length}
-                      title={`Create SU sheet for all ${byStage('volumetrics_created').length} cards in Volumetrics Created`}
-                      onClick={() => {/* TODO: wire to create_su_sheet.py */}} />
+                      title={`Run create_su_sheet_script.py on ${byStage('volumetrics_created').length} Volume Created card(s) then move to SU Sheet Created`}
+                      onClick={() => handleVolumeRun('create_su_sheet')}
+                    />
                   </ActionGutter>
                 )}
               </Fragment>
@@ -271,6 +497,14 @@ export function SUTab() {
           onCreated={(entry) => setEntries((prev) => [entry, ...prev])}
         />
       )}
+
+      {confirmState && (
+        <ConfirmationModal
+          message={confirmState.message}
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
     </div>
   )
 }
@@ -286,28 +520,77 @@ function ActionGutter({ children }: { children: React.ReactNode }) {
   )
 }
 
-function GutterButton({ label, sub, color, onClick, title, count }: {
-  label: string; sub: string; color: string; onClick: () => void; title?: string; count?: number
+function GutterButton({ label, sub, color, onClick, disabled, title, count, icon = '▶' }: {
+  label: string; sub: string; color: string; onClick: () => void
+  disabled?: boolean; title?: string; count?: number; icon?: string
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       title={title}
       style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-        padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
-        border: `1px dashed ${color}88`, background: `${color}12`,
+        padding: '8px 10px', borderRadius: 6,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        border: `1px dashed ${color}88`,
+        background: disabled ? `${color}0a` : `${color}12`,
         color, fontWeight: 600, fontSize: 11, lineHeight: 1.3,
-        whiteSpace: 'nowrap', transition: 'background 0.15s',
+        opacity: disabled ? 0.45 : 1, whiteSpace: 'nowrap',
+        transition: 'background 0.15s',
       }}
     >
-      <span style={{ fontSize: 14 }}>▶</span>
+      <span style={{ fontSize: 14 }}>{icon}</span>
       <span>{label}</span>
       <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{sub}</span>
       {count !== undefined && count > 0 && (
         <span style={{ fontSize: 10, fontWeight: 400, color: `${color}bb` }}>({count})</span>
       )}
     </button>
+  )
+}
+
+function VolumeRunBanner({ run, onDismiss }: { run: VolumeRunStatus; onDismiss: () => void }) {
+  const kindLabels: Record<string, string> = {
+    chain: 'Full pipeline chain',
+    create_su_sheet: 'Create SU Sheet',
+    pre_snip: 'Pre-Snip',
+    auto_snip: 'Auto-Snip',
+    post_snip: 'Post-Snip',
+  }
+  const kindLabel = run.kind ? (kindLabels[run.kind] ?? run.kind) : ''
+  const isActive = run.active
+
+  return (
+    <div style={runBannerStyle}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isActive && <span style={spinnerStyle} />}
+          {isActive
+            ? `Running ${kindLabel}…`
+            : run.status === 'done'
+              ? `${kindLabel} finished — ${run.cards_advanced} card${run.cards_advanced !== 1 ? 's' : ''} advanced`
+              : `${kindLabel} failed`}
+        </div>
+        {run.status === 'failed' && run.error && (
+          <div style={{ fontSize: 12, color: '#f87171', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: 100, overflowY: 'auto' }}>
+            {run.error}
+          </div>
+        )}
+        {isActive && (
+          <div style={{ height: 6, borderRadius: 3, background: T.badgeBg, overflow: 'hidden', position: 'relative', marginTop: 4 }}>
+            <div style={indeterminateBarStyle} />
+          </div>
+        )}
+      </div>
+      {!isActive && (
+        <button onClick={onDismiss} style={runBannerBtn} title="Dismiss">✕</button>
+      )}
+      <style>{`
+        @keyframes suSpin { to { transform: rotate(360deg); } }
+        @keyframes suSlide { 0% { left: -40%; } 100% { left: 100%; } }
+      `}</style>
+    </div>
   )
 }
 
@@ -336,4 +619,24 @@ const scanBtn: React.CSSProperties = {
 const addBtn: React.CSSProperties = {
   padding: '7px 14px', borderRadius: 6, border: 'none',
   background: T.accent, color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+}
+const runBannerStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'flex-start', gap: 16,
+  marginBottom: 16, padding: '12px 16px',
+  background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+}
+const spinnerStyle: React.CSSProperties = {
+  width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+  border: `2px solid ${T.border}`, borderTopColor: '#8b5cf6',
+  display: 'inline-block', animation: 'suSpin 0.7s linear infinite',
+}
+const indeterminateBarStyle: React.CSSProperties = {
+  position: 'absolute', top: 0, bottom: 0, width: '40%',
+  background: '#8b5cf6', borderRadius: 3,
+  animation: 'suSlide 1.1s ease-in-out infinite',
+}
+const runBannerBtn: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 6, border: `1px solid ${T.border}`,
+  background: T.surface, cursor: 'pointer', fontSize: 13, color: T.textSub,
+  fontWeight: 600, flexShrink: 0,
 }

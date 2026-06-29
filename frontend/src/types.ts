@@ -21,6 +21,8 @@ export interface SUEntry {
   /** Computed server-side: both top & bottom pgrams are processed (PLYs exist),
    *  so the volume is ready to be extracted. */
   ready?: boolean
+  /** "auto" when auto-snip advanced this card; "" otherwise. Used to show debug image button. */
+  snip_method?: string
 }
 
 export const PGRAM_STAGES = [
@@ -33,10 +35,24 @@ export const PGRAM_STAGES = [
 
 export const SU_STAGES = [
   { key: 'not_started', label: 'Not Started' },
+  { key: 'to_be_pre_snipped', label: 'To Be Pre-Snipped' },
+  { key: 'to_be_snipped', label: 'To Be Snipped' },
+  { key: 'to_be_post_snipped', label: 'To Be Post-Snipped' },
   { key: 'volumetrics_created', label: 'Volume Created' },
   { key: 'su_sheet_created', label: 'SU Sheet Created' },
   { key: 'uploaded_air', label: 'Uploaded to AIR' },
 ]
+
+export type VolumeRunKind = 'pre_snip' | 'auto_snip' | 'post_snip' | 'create_su_sheet' | 'chain'
+
+export interface VolumeRunStatus {
+  active: boolean
+  kind: VolumeRunKind | null
+  started_at: string | null
+  status: 'idle' | 'running' | 'done' | 'failed'
+  error: string | null
+  cards_advanced: number
+}
 
 export const FILESYSTEM_STAGES = new Set(['to_be_processed', 'to_be_aligned', 'to_overnight', 'processed', 'uploaded_air'])
 

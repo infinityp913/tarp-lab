@@ -421,6 +421,62 @@ def fix_su_folder_names(field_map: dict[str, dict]) -> dict:
     return {"renamed": renamed, "organized": organized, "skipped": skipped}
 
 
+def find_volume_bins_for_su(top_pgram: str) -> list[Path]:
+    """Find the two .bin files written by pre_snip_script for the given top pgram.
+
+    Pre-snip saves files named *_top_with_dist_*.bin and *_bottom_with_dist_*.bin
+    inside Data/<Pgram_Job_{top_pgram}*>/.
+    """
+    cfg = get_config()
+    if not cfg.volume_script_dir:
+        return []
+    data_dir = Path(cfg.volume_script_dir) / "Data"
+    if not data_dir.exists():
+        return []
+    prefix = f"pgram_job_{str(top_pgram).strip()}"
+    bins: list[Path] = []
+    for d in data_dir.iterdir():
+        if not d.is_dir() or not d.name.lower().startswith(prefix):
+            continue
+        for f in d.glob("*.bin"):
+            name_lower = f.name.lower()
+            if "_top_with_dist_" in name_lower or "_bottom_with_dist_" in name_lower:
+                bins.append(f)
+    return bins
+
+
+def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
+    """Find the final volume OBJ written by post_snip_script: Data/Final_Volumes/SU_{su_id}_raw.obj."""
+    cfg = get_config()
+    if not cfg.volume_script_dir:
+        return None
+    obj = Path(cfg.volume_script_dir) / "Data" / "Final_Volumes" / f"SU_{su_id}_raw.obj"
+    return obj if obj.exists() else None
+
+
+def find_debug_image_for_su(su_id: str, top_pgram: str) -> Optional[Path]:
+    """Find the debug image written by auto_snip_script.
+
+    Looks for Data/<Pgram_Job_{top_pgram}*>/SU_{su_id}_debug.* (any extension).
+    Returns None if no file is found (implies auto-snip has not run for this SU).
+    """
+    cfg = get_config()
+    if not cfg.volume_script_dir:
+        return None
+    data_dir = Path(cfg.volume_script_dir) / "Data"
+    if not data_dir.exists():
+        return None
+    prefix = f"pgram_job_{str(top_pgram).strip()}"
+    stem = f"su_{su_id}_debug"
+    for d in data_dir.iterdir():
+        if not d.is_dir() or not d.name.lower().startswith(prefix):
+            continue
+        for f in d.iterdir():
+            if f.is_file() and f.stem.lower() == stem:
+                return f
+    return None
+
+
 def scan_subfolders(parent_path: Optional[str] = None) -> list[str]:
     """Return trench subfolder names within base_path (for the Create Job picker)."""
     cfg = get_config()

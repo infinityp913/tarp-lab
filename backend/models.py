@@ -13,6 +13,9 @@ PGRAM_STAGES = [
 
 SU_STAGES = [
     "not_started",
+    "to_be_pre_snipped",
+    "to_be_snipped",
+    "to_be_post_snipped",
     "volumetrics_created",
     "su_sheet_created",
     "uploaded_air",
@@ -23,6 +26,9 @@ FILESYSTEM_STAGES = {"to_be_processed", "to_be_aligned", "to_overnight", "proces
 TRANSITION_DIALOGS: dict[tuple[str, str], str] = {
     ("to_be_aligned", "to_overnight"): "This only moves the job folder to 'To Overnight'. It does NOT run the alignment script — use the 'Run Alignment' button between the columns for that.",
     ("to_overnight", "processed"): "This only moves the job folder to 'Processed'. It does NOT run the overnight script — use the 'Run Overnight' button between the columns for that.",
+    ("to_be_pre_snipped", "to_be_snipped"): "This only moves the card to 'To Be Snipped'. It does NOT run the pre-snip script — use the Pre-Snip button between the columns for that.",
+    ("to_be_snipped", "to_be_post_snipped"): "This only moves the card to 'To Be Post-Snipped'. It does NOT run the auto-snip script — use the Auto-Snip button for that, or confirm here if you have manually snipped in CloudCompare.",
+    ("to_be_post_snipped", "volumetrics_created"): "This only moves the card to 'Volume Created'. It does NOT run the post-snip script — use the Post-Snip button between the columns for that.",
 }
 
 
@@ -65,11 +71,15 @@ class SUEntry(BaseModel):
     stage: str
     notes: str = ""
     last_updated: str = ""
+    snip_method: str = ""  # "auto" when auto-snip advanced this card; "" otherwise
 
     @classmethod
     def stage_label(cls, stage: str) -> str:
         labels = {
             "not_started": "Not Started",
+            "to_be_pre_snipped": "To Be Pre-Snipped",
+            "to_be_snipped": "To Be Snipped",
+            "to_be_post_snipped": "To Be Post-Snipped",
             "volumetrics_created": "Volume Created",
             "su_sheet_created": "SU Sheet Created",
             "uploaded_air": "Uploaded to AIR",
@@ -113,6 +123,10 @@ class CreateSUEntryRequest(BaseModel):
     top_pgram: str = ""
     bot_pgram: str = ""
     trench: str
+
+
+class VolumeRunRequest(BaseModel):
+    kind: str  # pre_snip | auto_snip | post_snip
 
 
 def cet_now() -> str:
