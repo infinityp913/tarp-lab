@@ -52,6 +52,9 @@ export interface VolumeRunStatus {
   status: 'idle' | 'running' | 'done' | 'failed'
   error: string | null
   cards_advanced: number
+  processed: number
+  total: number
+  step_label: string | null
 }
 
 export const FILESYSTEM_STAGES = new Set(['to_be_processed', 'to_be_aligned', 'to_overnight', 'processed', 'uploaded_air'])
