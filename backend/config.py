@@ -52,10 +52,18 @@ class Config:
         self.script_auto_snip: str = scripts_cfg.get("auto_snip", "")
         self.script_post_snip: str = scripts_cfg.get("post_snip", "")
         self.script_create_su_sheet: str = scripts_cfg.get("create_su_sheet", "")
+        # create_su_sheet is a QGIS script, not a CloudComPy one: it runs under QGIS's
+        # bundled Python via the python-qgis-ltr.bat launcher, in its own repo dir.
+        self.create_su_sheet_dir: str = scripts_cfg.get("create_su_sheet_dir", "")
+        self.qgis_launcher: str = scripts_cfg.get("qgis_launcher", "")
         # Working directory for CloudComPy volume scripts (contains Data/ subfolder and example.json)
         self.volume_script_dir: str = scripts_cfg.get("volume_script_dir", "")
-        # Python interpreter in the CloudComPy conda environment
+        # Python interpreter in the CloudComPy venv/conda environment
         self.cloudcompy_python: str = scripts_cfg.get("cloudcompy_python", "")
+        # CloudComPy binary install root (the folder containing CloudCompare/ and
+        # envCloudComPy.bat). Used to set PYTHONPATH/PATH for the volume scripts so
+        # `import cloudComPy` works without shell activation. Leave blank to disable.
+        self.cloudcompy_root: str = scripts_cfg.get("cloudcompy_root", "")
         self.season_year: int = int(raw.get("season_year", 2026))
         trench_cfg = raw.get("current_year_trenches", {}) or {}
         self.current_year_trenches: tuple[int, int] = (
