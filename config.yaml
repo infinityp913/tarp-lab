@@ -40,6 +40,17 @@ scripts:
   # Where the overnight script writes PLY / Orthos / DEM exports.
   overnight_output_assets_root: "C:/Users/Photogrammetry/GIS_2026"
 
+  # Volume (CloudComPy) pipeline — set these to enable the Pre-Snip / Auto-Snip / Post-Snip buttons.
+  # volume_script_dir is the working directory that contains Data/, example.json, etc.
+  # cloudcompy_python is the Python interpreter inside the CloudComPy conda environment
+  # (run `conda activate CloudComPy310 && where python` on the Windows machine to find it).
+  pre_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\pre_snip_script.py"
+  auto_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\auto_snip_script.py"
+  post_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\post_snip_script.py"
+  create_su_sheet: "C:\\Users\\Photogrammetry\\AutomateRockMasks\\generate_su_sheets.py"
+  volume_script_dir: "C:\\Users\\Photogrammetry\\cloudcomparescript"
+  cloudcompy_python: "C:\\Users\\Photogrammetry\\miniconda3\\envs\\CloudComPy310\\python.exe"
+
 # Google Sheets spreadsheet ID (from the URL: /spreadsheets/d/{ID}/edit)
 gsheets_spreadsheet_id: "1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI"
 

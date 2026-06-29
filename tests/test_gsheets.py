@@ -52,7 +52,7 @@ def test_pg_cols_count():
 
 
 def test_su_cols_count():
-    assert SU_COLS == 8
+    assert SU_COLS == 10
     assert len(_su_header()) == SU_COLS
 
 
@@ -112,7 +112,7 @@ def test_su_to_row_empty_pgrams():
 def _pg_fake_rows(*data_rows):
     header = ["Pgram Number", "Trench",
               "Photos—No Alignment", "Alignment+Manual Check",
-              "Overnight Completed", "Uploaded to AIR",
+              "PLY Created (Overnight completed)", "Uploaded to AIR",
               "Notes", "Last Updated (CET)"]
     return [header] + list(data_rows)
 
@@ -147,14 +147,17 @@ def test_rows_to_pgram_stage_derivation():
 
 def _su_fake_rows(*data_rows):
     # No Trench column — trench is injected from the tab name
+    # New layout: ID, Top, Bot, VolumeStage, VolCreated, SheetCreated, Air, Notes, Updated, SnipMethod
     header = ["SU ID", "Top Pgram", "Bottom Pgram",
+              "Volume Stage",
               "Volume Created", "SU Sheet Created",
-              "Uploaded to AIR", "Notes", "Last Updated (CET)"]
+              "Uploaded to AIR", "Notes", "Last Updated (CET)", "Snip Method"]
     return [header] + list(data_rows)
 
 
 def test_rows_to_su_schema():
-    rows = _su_fake_rows(["SU001", 696, 697, False, False, False, "", ""])
+    # Stage key at index 3; checkboxes at 4-6
+    rows = _su_fake_rows(["SU001", 696, 697, "not_started", False, False, False, "", "", ""])
     result = _rows_to_su(rows, "16000")  # trench injected from tab name
     assert len(result) == 1
     r = result[0]
@@ -166,18 +169,19 @@ def test_rows_to_su_schema():
 
 
 def test_rows_to_su_stage_volumetrics():
-    rows = _su_fake_rows(["SU002", 0, 0, True, False, False, "", ""])
+    # Stage key at index 3 takes precedence
+    rows = _su_fake_rows(["SU002", 0, 0, "volumetrics_created", True, False, False, "", "", ""])
     result = _rows_to_su(rows, "17000")
     assert result[0]["stage"] == "volumetrics_created"
 
 
 def test_rows_to_su_skips_empty_id():
-    rows = _su_fake_rows(["", 0, 0, False, False, False, "", ""])
+    rows = _su_fake_rows(["", 0, 0, "not_started", False, False, False, "", "", ""])
     assert _rows_to_su(rows, "17000") == []
 
 
 def test_rows_to_su_pads_short_rows():
-    rows = [["SU ID", "Top Pgram", "Bottom Pgram", "Vol", "Sheet", "AIR", "Notes", "Updated"],
+    rows = [["SU ID", "Top Pgram", "Bottom Pgram", "Vol Stage", "Vol", "Sheet", "AIR", "Notes", "Updated", "Snip"],
             ["SU003"]]  # only 1 column
     result = _rows_to_su(rows, "18000")
     assert len(result) == 1

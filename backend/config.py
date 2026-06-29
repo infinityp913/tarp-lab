@@ -48,6 +48,14 @@ class Config:
         self.script_overnight: str = scripts_cfg.get("overnight", "")
         self.gcp_csv: str = scripts_cfg.get("gcp_csv", "")
         self.overnight_output_assets_root: str = scripts_cfg.get("overnight_output_assets_root", "C:/Users/Photogrammetry/GIS_2026")
+        self.script_pre_snip: str = scripts_cfg.get("pre_snip", "")
+        self.script_auto_snip: str = scripts_cfg.get("auto_snip", "")
+        self.script_post_snip: str = scripts_cfg.get("post_snip", "")
+        self.script_create_su_sheet: str = scripts_cfg.get("create_su_sheet", "")
+        # Working directory for CloudComPy volume scripts (contains Data/ subfolder and example.json)
+        self.volume_script_dir: str = scripts_cfg.get("volume_script_dir", "")
+        # Python interpreter in the CloudComPy conda environment
+        self.cloudcompy_python: str = scripts_cfg.get("cloudcompy_python", "")
         self.season_year: int = int(raw.get("season_year", 2026))
         trench_cfg = raw.get("current_year_trenches", {}) or {}
         self.current_year_trenches: tuple[int, int] = (

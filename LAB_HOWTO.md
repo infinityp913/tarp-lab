@@ -70,6 +70,27 @@ The dashboard only looks at trenches for the **current season**. This keeps old 
 
 > Anything outside this range — folders sitting loose in a stage folder (like `Pre-2026` or `__pycache__`) and old trenches (like `Trench 19000`) — is ignored. It won't appear on the board, won't be run by the scripts, and won't trigger the "misnamed folder" warning.
 
+### Step 1c — Configure the CloudComPy volume pipeline
+
+The Pre-Snip / Auto-Snip / Post-Snip buttons only work if the CloudComPy scripts and Python interpreter are configured in `config.yaml`. These should already be filled in for the 2026 setup — check with Ananth if the buttons show an error when clicked.
+
+The relevant lines in `config.yaml` are:
+
+```yaml
+scripts:
+  pre_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\pre_snip_script.py"
+  auto_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\auto_snip_script.py"
+  post_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\post_snip_script.py"
+  create_su_sheet: "C:\\Users\\Photogrammetry\\AutomateRockMasks\\generate_su_sheets.py"
+  volume_script_dir: "C:\\Users\\Photogrammetry\\cloudcomparescript"
+  cloudcompy_python: "C:\\Users\\Photogrammetry\\miniconda3\\envs\\CloudComPy310\\python.exe"
+```
+
+- `volume_script_dir` is the working directory that contains the `Data/` subfolder where the scripts write their output.
+- `cloudcompy_python` is the Python interpreter inside the CloudComPy conda environment. To find it on this machine: open Anaconda Prompt, run `conda activate CloudComPy310` then `where python` and copy the path.
+
+If any of these are wrong you'll see an error message in the banner when you try to run a script.
+
 ### Step 2 — Get access to the Google Sheet
 
 Ask **Ananth** to share [the TARP tracking Google Sheet](https://docs.google.com/spreadsheets/d/1r6TMtVEl6wIAAO8FNEXW1qkkFeAxumyyRsFSE4vHIwI/edit?gid=1174152009#gid=1174152009) for the current season with your Google account. You need edit access.
@@ -113,15 +134,40 @@ This tab shows all photogrammetry jobs as a kanban board.
 
 ## SU Volumes tab
 
-This tab tracks individual stratigraphic units through the volumetrics pipeline.
+This tab tracks individual stratigraphic units through the CloudComPy snip pipeline.
 
-**Columns:**
-1. **Not Started** — SU registered, no volumes yet
-2. **Volume Created** — volumetric model generated
-3. **SU Sheet Created** — SU data sheet completed
-4. **Uploaded to AIR** — delivered to the archive
+**Columns (left to right):**
+1. **Not Started** — SU registered; waiting for both PLYs to be processed before it can enter the pipeline
+2. **To Be Pre-Snipped** — ready to run the pre-snip script (generates .bin point-cloud files in CloudCompare)
+3. **To Be Snipped** — pre-snip finished; the card can be snipped automatically (Auto-Snip button) or manually in CloudCompare
+4. **To Be Post-Snipped** — snipping done; ready for post-snip to compute the final volume OBJ
+5. **Volume Created** — volume OBJ generated and available to review
+6. **SU Sheet Created** — SU data sheet completed
+7. **Uploaded to AIR** — delivered to the archive
 
-**Top and Bottom Pgram:** each card shows two number boxes for the photogrammetry job numbers covering the top and bottom of that SU. Click a box, type the number, then click anywhere else — it saves automatically.
+**Moving cards:**
+
+- **Drag and drop** a card to the next column, or use the **→ button** in the top-right of each card to advance it one step. Moving backward is always allowed.
+- Some transitions require a quick confirmation (e.g. dragging from To Be Snipped → To Be Post-Snipped confirms that you have snipped it manually in CloudCompare, not via the Auto-Snip script). Answer honestly.
+
+**Gutter buttons between columns:**
+
+- **Move Ready → Pre-Snip** (between Not Started and To Be Pre-Snipped): moves all "ready" cards (both PLYs processed) in Not Started into To Be Pre-Snipped in one click.
+- **Run All Pipeline** (also between Not Started and To Be Pre-Snipped): runs the full pipeline in one click — moves ready cards, then sequentially runs pre-snip, auto-snip, post-snip, and create-SU-sheet scripts. Cards advance automatically when each script succeeds.
+- **Pre-Snip Script** (between To Be Pre-Snipped and To Be Snipped): runs `pre_snip_script.py` on all cards in To Be Pre-Snipped.
+- **Auto-Snip Script** (between To Be Snipped and To Be Post-Snipped): runs `auto_snip_script.py`. Cards that go through auto-snip get a **Debug Img ↗** button you can click to review the snip result.
+- **Post-Snip Script** (between To Be Post-Snipped and Volume Created): runs `post_snip_script.py`.
+- **Create SU Sheet** (between Volume Created and SU Sheet Created): runs `generate_su_sheets.py`.
+
+**While a script is running** a progress banner appears at the top of the tab with a spinner and progress bar. The board refreshes every 2.5 seconds. When the script finishes a toast pops up with how many cards were advanced (or the error if it failed).
+
+**Card action buttons:**
+
+- **Open in CC ↗** — visible on cards in *To Be Snipped*. Opens the two pre-snip `.bin` files in CloudCompare for manual review or snipping.
+- **Debug Img ↗** — visible on cards that were advanced by auto-snip. Opens the debug image in the default viewer.
+- **Volume ↗** — visible on cards in *Volume Created*. Opens the final volume OBJ in the default application.
+
+**Top and Bottom Pgram:** each card shows two number boxes for the photogrammetry job numbers covering the top and bottom of that SU. Click a box, type the number, then click anywhere else — it saves automatically. Both must be set (and both PLYs processed) before a card is considered "ready" to enter the pipeline.
 
 **Notes:** click a card to open it and add notes. They save automatically.
 
@@ -177,6 +223,10 @@ That's the only change needed — the previous season's trenches stay on disk bu
 | Sync failed (red button) | Check that the machine is connected to the internet. It will retry automatically on the next 5-minute cycle. |
 | Red auth banner | Click **↻ Re-authenticate** and sign in again. |
 | Folder won't move | Close the job in Metashape first — Windows locks the folder while it's open. |
+| Pre-/Auto-/Post-Snip button shows an error | Check the `scripts:` section in `config.yaml` — the script paths and `cloudcompy_python` must exist on disk. The error message in the banner tells you which path is wrong. |
+| Script ran but no cards advanced | The script may have exited with an error (non-zero return code). The banner shows the last 800 characters of the script output. Check that the `Data/` subfolder inside `volume_script_dir` has the expected pgram job subfolders. |
+| "Open in CC ↗" button says no .bin files found | Pre-snip has not run for this SU yet, or the `.bin` files are in an unexpected location. The files should be inside `Data/<Pgram_Job_{top_pgram}*>/` as `*_top_with_dist_*.bin` and `*_bottom_with_dist_*.bin`. |
+| "Volume ↗" button says no OBJ found | Post-snip has not run for this SU yet. The file should be at `Data/Final_Volumes/SU_{su_id}_raw.obj` inside `volume_script_dir`. |
 
 ---
 

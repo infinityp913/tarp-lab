@@ -7,17 +7,20 @@ See also: [`tarp-field` repo](https://github.com/infinityp913/tarp-field) (separ
 ## Tabs
 
 - **Model Production**: Kanban board for `Pgram_Job_###` folders. Moving a card physically moves the folder on disk. Buttons launch Metashape, CloudCompare, and QGIS.
-- **SU Volumes**: Tracks stratigraphic units through volumetrics → SU sheet → AIR upload. SU cards have inline Top/Bottom Pgram number fields that save on blur.
+- **SU Volumes**: Tracks stratigraphic units through the CloudComPy snip pipeline → volume OBJ → SU sheet → AIR upload. Cards move through: Not Started → To Be Pre-Snipped → To Be Snipped → To Be Post-Snipped → Volume Created → SU Sheet Created → Uploaded to AIR. Gutter buttons between columns launch the CloudComPy scripts (pre-snip, auto-snip, post-snip, create SU sheet) and advance the relevant cards automatically on success. SU cards have inline Top/Bottom Pgram number fields that save on blur.
 
 ## Google Sheets schema
 
 ### Pgram Jobs (10 columns A–J)
-`Pgram Number` · `Trench` · `SUs Open` · `SUs Closed` · `Photos—No Alignment` · `Alignment+Manual Check` · `Overnight Completed` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)`
+`Pgram Number` · `Trench` · `SUs Open` · `SUs Closed` · `Photos—No Alignment` · `Alignment+Manual Check` · `PLY Created (Overnight completed)` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)`
 
 > Pgram Number is stored as an **integer** (e.g. `696`, not `Pgram_Job_696`).
 
-### SU Tracking (9 columns A–I)
-`SU ID` · `Top Pgram` · `Bottom Pgram` · `Trench` · `Volumetrics Created` · `SU Sheet Created` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)`
+### SU Tracking (10 columns A–J)
+`SU ID` · `Top Pgram` · `Bottom Pgram` · `Volume Stage` · `Volume Created` · `SU Sheet Created` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)` · `Snip Method`
+
+- `Volume Stage` (col D) holds the raw stage string. It takes precedence over the checkbox-derived stage so the pre-snip stages (`to_be_pre_snipped`, `to_be_snipped`, `to_be_post_snipped`) are preserved across syncs. Old rows without this column fall back to checkbox logic.
+- `Snip Method` (col J) is set to `"auto"` when auto-snip advanced the card, empty otherwise. Controls whether the debug image button is shown on the card.
 
 ### Staging tabs
 `full_sync` writes to `Pgram Jobs_Staging` and `SU Tracking_Staging` first, then does a single `batchUpdate copyPaste` to the live tabs. This minimises the window where live data is empty. A random 0–3 s jitter at sync start reduces the chance of Lab + Field sync calls colliding.
@@ -47,6 +50,21 @@ app_paths:
   metashape:    ""   # full path or leave blank
   cloudcompare: ""
   qgis:        ""   # auto-discovered on Windows
+
+scripts:
+  alignment: ""
+  overnight: ""
+  gcp_csv: ""
+  overnight_output_assets_root: ""
+  # Volume (CloudComPy) pipeline — enables the Pre-Snip / Auto-Snip / Post-Snip buttons.
+  # volume_script_dir must contain a Data/ subfolder and example.json.
+  # cloudcompy_python: run `conda activate CloudComPy310 && where python` to find it.
+  pre_snip: ""
+  auto_snip: ""
+  post_snip: ""
+  create_su_sheet: ""
+  volume_script_dir: ""
+  cloudcompy_python: ""
 
 gsheets_spreadsheet_id: ""   # from the spreadsheet URL
 host: 127.0.0.1
@@ -124,6 +142,11 @@ are matched.
 |---|---|---|
 | To Be Aligned | To Overnight | Did the alignment script run successfully? |
 | To Overnight | Processed | Did the overnight script run succeed? |
+| To Be Pre-Snipped | To Be Snipped | Did not run pre-snip — use the Pre-Snip button. |
+| To Be Snipped | To Be Post-Snipped | Did not run auto-snip — use the Auto-Snip button, or confirm if manually snipped in CloudCompare. |
+| To Be Post-Snipped | Volume Created | Did not run post-snip — use the Post-Snip button. |
+
+The SU snip transitions gate against accidental drag-and-drop. Cards can still be moved backward freely. The "→" button on each card advances it one step and also triggers the confirmation dialog where required.
 
 ## Timestamps
 

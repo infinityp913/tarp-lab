@@ -6,7 +6,7 @@ TARP Lab Pgram Tracking columns (0-indexed, lab-owned, written by lab sync):
   1  Trench
   2  Photos—No Alignment ← TRUE when stage >= to_be_aligned
   3  Alignment+Manual    ← TRUE when stage >= to_overnight
-  4  Overnight Completed ← TRUE when stage >= processed
+  4  PLY Created (Overnight completed) ← TRUE when stage >= processed
   5  Uploaded to AIR     ← TRUE when stage == uploaded_air
   6  Notes               ← lab-entered notes (editable in lab UI)
   7  Last Updated (CET)
@@ -28,6 +28,7 @@ SU Trench tabs (one per trench: Trench 20000 … Trench 24000) columns (0-indexe
   5  Uploaded to AIR     ← TRUE when stage == uploaded_air
   6  Notes
   7  Last Updated (CET)
+  8  Volume Stage        ← raw stage string; overrides checkbox-derived stage when set
 """
 
 import logging
@@ -84,12 +85,14 @@ FP_COLS = 6
 SU_ID = 0
 SU_TOP_PGRAM = 1
 SU_BOT_PGRAM = 2
-SU_VOL = 3
-SU_SHEET = 4
-SU_AIR = 5
-SU_NOTES = 6
-SU_UPDATED = 7
-SU_COLS = 8
+SU_STAGE_COL = 3        # raw stage string — placed before checkbox columns for visibility
+SU_VOL = 4
+SU_SHEET = 5
+SU_AIR = 6
+SU_NOTES = 7
+SU_UPDATED = 8
+SU_SNIP_METHOD_COL = 9  # "auto" when auto-snip advanced this card; "" otherwise
+SU_COLS = 10
 
 # The five trench-specific SU tabs
 _SU_TRENCH_TABS = [
@@ -351,6 +354,24 @@ def _apply_sheet_style(svc, sid: str, sheet_id: int, num_cols: int, bool_cols: l
     except Exception as e:
         _log_error(f"_apply_sheet_style (auto-resize) failed (non-fatal): {e}")
 
+    try:
+        width_requests = [
+            {
+                "updateDimensionProperties": {
+                    "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
+                              "startIndex": col, "endIndex": col + 1},
+                    "properties": {"pixelSize": 160},
+                    "fields": "pixelSize",
+                }
+            }
+            for col in bool_cols
+        ]
+        _execute(svc.spreadsheets().batchUpdate(
+            spreadsheetId=sid, body={"requests": width_requests}
+        ))
+    except Exception as e:
+        _log_error(f"_apply_sheet_style (checkbox column width) failed (non-fatal): {e}")
+
 
 def _read_range(range_name: str) -> Optional[list[list]]:
     svc = _get_service()
@@ -424,7 +445,7 @@ def _pg_header() -> list:
     return [
         "Pgram Number", "Trench",
         "Photos—No Alignment", "Alignment+Manual Check",
-        "Overnight Completed", "Uploaded to AIR",
+        "PLY Created (Overnight completed)", "Uploaded to AIR",
         "Notes", "Last Updated (CET)",
     ]
 
@@ -432,9 +453,10 @@ def _pg_header() -> list:
 def _su_header() -> list:
     return [
         "SU ID", "Top Pgram", "Bottom Pgram",
+        "Volume Stage",
         "Volume Created", "SU Sheet Created",
         "Uploaded to AIR",
-        "Notes", "Last Updated (CET)",
+        "Notes", "Last Updated (CET)", "Snip Method",
     ]
 
 
@@ -470,11 +492,13 @@ def _su_to_row(entry: SUEntry) -> list:
         entry.su_id,
         top,
         bot,
+        entry.stage,
         vol,
         sheet,
         air,
         entry.notes,
         cet_now(),
+        entry.snip_method,
     ]
 
 
@@ -559,14 +583,21 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
             row.append("")
         if not row[SU_ID]:
             continue
-        stage = _stage_from_su_checkboxes(
-            _bool(row[SU_AIR]),
-            _bool(row[SU_SHEET]),
-            _bool(row[SU_VOL]),
-        )
+        # Col 3 (Volume Stage) takes precedence over checkbox-derived stage.
+        # Old rows without col 3 fall back to the checkbox logic.
+        raw_stage = str(row[SU_STAGE_COL]).strip() if len(row) > SU_STAGE_COL else ""
+        if raw_stage and raw_stage in SU_STAGES:
+            stage = raw_stage
+        else:
+            stage = _stage_from_su_checkboxes(
+                _bool(row[SU_AIR]),
+                _bool(row[SU_SHEET]),
+                _bool(row[SU_VOL]),
+            )
         notes = row[SU_NOTES]
         if isinstance(notes, bool) or str(notes).upper() in ("TRUE", "FALSE"):
             notes = ""
+        snip_method = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
         result.append({
             "su_id": row[SU_ID],
             "top_pgram": str(row[SU_TOP_PGRAM]),
@@ -575,6 +606,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
             "stage": stage,
             "notes": notes,
             "last_updated": row[SU_UPDATED],
+            "snip_method": snip_method,
         })
     return result
 
@@ -623,7 +655,7 @@ def get_su_rows() -> list[dict]:
     if not is_available():
         return []
 
-    ranges = [f"{tab}!A:H" for tab in _SU_TRENCH_TABS]
+    ranges = [f"{tab}!A:J" for tab in _SU_TRENCH_TABS]
     all_rows = _batch_read_ranges(ranges)
 
     if all_rows is None:
@@ -741,7 +773,7 @@ def upsert_su(entry: SUEntry):
     if not tab:
         _log_error(f"upsert_su: cannot determine tab for SU {entry.su_id}")
         return
-    rows = _read_range(f"{tab}!A:H")
+    rows = _read_range(f"{tab}!A:J")
     if rows is None:
         raise RuntimeError(f"Google Sheets read failed during upsert_su ({tab})")
     data = rows[1:] if len(rows) > 1 else []
@@ -759,13 +791,17 @@ def upsert_su(entry: SUEntry):
     _invalidate_su_cache()
 
 
-def update_su_stage(su_id: str, stage: str):
+def update_su_stage(su_id: str, stage: str, snip_method: Optional[str] = None):
+    """Update the stage for an SU entry.
+
+    snip_method: if None, preserve existing value; if "" clear it; if "auto" mark it.
+    """
     if not is_available():
         raise RuntimeError("Google Sheets is unavailable")
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:H")
+    rows = _read_range(f"{tab}!A:J")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     vol, sheet, air = _su_checkboxes(stage)
@@ -773,10 +809,13 @@ def update_su_stage(su_id: str, stage: str):
         if row and row[0] == su_id:
             while len(row) < SU_COLS:
                 row.append("")
+            existing_snip = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
+            write_snip = snip_method if snip_method is not None else existing_snip
             _write_range(
-                f"{tab}!D{i}:H{i}",
-                [[vol, sheet, air,
-                  row[SU_NOTES] if len(row) > SU_NOTES else "", cet_now()]],
+                f"{tab}!D{i}:J{i}",
+                [[stage, vol, sheet, air,
+                  row[SU_NOTES] if len(row) > SU_NOTES else "",
+                  cet_now(), write_snip]],
             )
             _invalidate_su_cache()
             return
@@ -789,7 +828,7 @@ def update_su_pgrams(su_id: str, top_pgram: str, bot_pgram: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:H")
+    rows = _read_range(f"{tab}!A:J")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     top = int(top_pgram) if str(top_pgram).isdigit() else (top_pgram or "")
@@ -808,12 +847,12 @@ def update_su_notes(su_id: str, notes: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:H")
+    rows = _read_range(f"{tab}!A:J")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0] == su_id:
-            _write_range(f"{tab}!G{i}:H{i}", [[notes, cet_now()]])
+            _write_range(f"{tab}!H{i}:I{i}", [[notes, cet_now()]])
             _invalidate_su_cache()
             return
     raise ValueError(f"SU {su_id} not found in {tab}")
@@ -829,6 +868,12 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
     """
     if not is_available():
         raise RuntimeError("Google Sheets is unavailable")
+
+    if not pgram_jobs:
+        raise RuntimeError(
+            "Sync aborted: filesystem scan returned 0 Pgram jobs. "
+            "Check that the data drive is mounted and base_path is correct."
+        )
 
     time.sleep(random.uniform(0, 3))
 
@@ -860,11 +905,11 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
         trench = tab.replace("Trench ", "")
         entries = entries_by_trench.get(trench, [])
         su_rows = [_su_header()] + [_su_to_row(e) for e in entries]
-        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:H"))
+        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:J"))
         _write_range(f"{tab}!A1", su_rows)
         tab_id = trench_tab_ids.get(tab, 0)
         if tab_id:
-            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR])
+            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR])  # SU_COLS = 10
 
     _invalidate_pgram_cache()
     _invalidate_su_cache()
