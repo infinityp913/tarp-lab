@@ -48,11 +48,24 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Cleaning old build output...
+if exist "..\backend\static" rmdir /s /q "..\backend\static"
+
 echo Building frontend...
 call npm run build
 if errorlevel 1 (
     echo.
     echo Frontend build failed. Please ask Ananth for help.
+    echo.
+    cd /d "%~dp0"
+    pause
+    exit /b 1
+)
+
+if not exist "..\backend\static\index.html" (
+    echo.
+    echo Frontend build did not produce index.html ^(incomplete build^).
+    echo The dashboard would show a blank page. Please ask Ananth for help.
     echo.
     cd /d "%~dp0"
     pause
