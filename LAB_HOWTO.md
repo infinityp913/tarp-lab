@@ -218,6 +218,7 @@ That's the only change needed — the previous season's trenches stay on disk bu
 | Problem | What to check |
 |---|---|
 | Dashboard doesn't open | Make sure the black command window is still open. Try going to http://127.0.0.1:8000 manually. |
+| Dashboard is a blank / white page | The frontend wasn't built (or a previous build was interrupted). Close the dashboard and double-click **`setup.bat`** again — it now wipes any half-built files and rebuilds from scratch. Wait for **"Setup complete"**, then start the dashboard. If `setup.bat` itself reports a build error, ask Ananth. |
 | No jobs showing on the board | The stage folders may not be found. Check that the `tarp-lab` folder is configured correctly (ask Ananth). Also check the **"Working on trenches X–Y"** badge — if this season's trenches aren't in that range, update `current_year_trenches` (see *Starting a new season*). |
 | Jobs in an old trench missing | Old trenches outside `current_year_trenches` are hidden on purpose. Widen the range in `config.yaml` if you need them back. |
 | Sync failed (red button) | Check that the machine is connected to the internet. It will retry automatically on the next 5-minute cycle. |

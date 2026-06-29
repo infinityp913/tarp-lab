@@ -96,8 +96,11 @@ python3 -m backend.main
 # Open browser at http://127.0.0.1:8000
 ```
 
-> On Windows, `setup.bat` does the pip install + frontend build for you.
+> On Windows, `setup.bat` does the pip install + frontend build for you. It wipes
+> `backend/static/` before building and verifies `index.html` was produced, so an
+> interrupted/partial build can't silently leave you with a blank page.
 > Re-run the build (`cd frontend && npm run build`) after pulling frontend changes.
+> **Blank page?** The bundle is missing or half-built — rebuild (or re-run `setup.bat`).
 
 ## Development
 
