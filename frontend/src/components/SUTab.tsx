@@ -268,7 +268,9 @@ export function SUTab() {
   }
 
   async function handleBatchMoveToPreSnip() {
+    const readyCount = byStage('not_started').filter((e) => e.ready).length
     setBatchMoveState({ loading: true })
+    toast(`Moving ${readyCount} ready card${readyCount !== 1 ? 's' : ''} to To Be Pre-Snipped…`, 'info')
     try {
       const r = await batchMoveToPreSnip()
       if (r.moved === 0) {
@@ -400,6 +402,8 @@ export function SUTab() {
                   <ActionGutter>
                     <GutterButton
                       label="Move Ready" sub="→ Pre-Snip" color="#94a3b8"
+                      loading={batchMoveState.loading}
+                      loadingLabel="Moving…"
                       disabled={batchMoveState.loading || runActive}
                       count={byStage('not_started').filter((e) => e.ready).length}
                       title={`Move all ${byStage('not_started').filter((e) => e.ready).length} ready card(s) from Not Started to To Be Pre-Snipped`}
@@ -408,8 +412,8 @@ export function SUTab() {
                     <GutterButton
                       label="Run All" sub="Pipeline" color="#6366f1"
                       icon="▶▶"
-                      disabled={runActive}
-                      title="Run the full pipeline chain: move ready cards → pre-snip → auto-snip → post-snip → SU Sheet Created"
+                      disabled
+                      title="Pipeline run is disabled for now — it relies on auto-snip, which isn't reliable yet. Run each stage manually and snip in CloudCompare."
                       onClick={handleChainRun}
                     />
                   </ActionGutter>
@@ -429,9 +433,9 @@ export function SUTab() {
                   <ActionGutter>
                     <GutterButton
                       label="Auto-Snip" sub="Script" color="#8b5cf6"
-                      disabled={runActive}
+                      disabled
                       count={byStage('to_be_snipped').length}
-                      title={`Run auto_snip_script.py on ${byStage('to_be_snipped').length} card(s) in To Be Snipped — or manually snip in CloudCompare and drag the card`}
+                      title="Auto-snip is disabled for now — the auto_snip_script.py isn't reliable yet. Manually snip in CloudCompare and drag the card to the next stage."
                       onClick={() => handleVolumeRun('auto_snip')}
                     />
                   </ActionGutter>
@@ -520,32 +524,44 @@ function ActionGutter({ children }: { children: React.ReactNode }) {
   )
 }
 
-function GutterButton({ label, sub, color, onClick, disabled, title, count, icon = '▶' }: {
+function GutterButton({ label, sub, color, onClick, disabled, title, count, icon = '▶', loading = false, loadingLabel }: {
   label: string; sub: string; color: string; onClick: () => void
   disabled?: boolean; title?: string; count?: number; icon?: string
+  loading?: boolean; loadingLabel?: string
 }) {
+  const isDisabled = disabled || loading
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
+      disabled={isDisabled}
       title={title}
       style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
         padding: '8px 10px', borderRadius: 6,
-        cursor: disabled ? 'not-allowed' : 'pointer',
+        cursor: isDisabled ? (loading ? 'progress' : 'not-allowed') : 'pointer',
         border: `1px dashed ${color}88`,
-        background: disabled ? `${color}0a` : `${color}12`,
+        background: isDisabled ? `${color}0a` : `${color}12`,
         color, fontWeight: 600, fontSize: 11, lineHeight: 1.3,
-        opacity: disabled ? 0.45 : 1, whiteSpace: 'nowrap',
+        opacity: isDisabled ? (loading ? 0.8 : 0.45) : 1, whiteSpace: 'nowrap',
         transition: 'background 0.15s',
       }}
     >
-      <span style={{ fontSize: 14 }}>{icon}</span>
-      <span>{label}</span>
+      <span style={{ fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {loading ? <span style={gutterSpinnerStyle} /> : icon}
+      </span>
+      <span>{loading ? (loadingLabel ?? label) : label}</span>
       <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{sub}</span>
-      {count !== undefined && count > 0 && (
+      {loading ? (
+        <span style={{ width: '100%', height: 4, borderRadius: 2, background: `${color}22`, overflow: 'hidden', position: 'relative', marginTop: 2 }}>
+          <span style={{ ...indeterminateBarStyle, background: color, width: '40%' }} />
+        </span>
+      ) : count !== undefined && count > 0 && (
         <span style={{ fontSize: 10, fontWeight: 400, color: `${color}bb` }}>({count})</span>
       )}
+      <style>{`
+        @keyframes suSpin { to { transform: rotate(360deg); } }
+        @keyframes suSlide { 0% { left: -40%; } 100% { left: 100%; } }
+      `}</style>
     </button>
   )
 }
@@ -624,6 +640,11 @@ const runBannerStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'flex-start', gap: 16,
   marginBottom: 16, padding: '12px 16px',
   background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+}
+const gutterSpinnerStyle: React.CSSProperties = {
+  width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+  border: '2px solid currentColor', borderTopColor: 'transparent',
+  display: 'inline-block', animation: 'suSpin 0.7s linear infinite', opacity: 0.9,
 }
 const spinnerStyle: React.CSSProperties = {
   width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
