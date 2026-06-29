@@ -2,6 +2,17 @@
 
 All notable changes to TARP Lab Dashboard are documented here.
 
+## [1.0.2.0] - 2026-06-29
+
+### Changed
+- Post-Snip script now runs independently without requiring auto-snip. After running Pre-Snip, open the two `.bin` files in CloudCompare via the **Open in CC ↗** button, crop top and bottom to the SU boundary, and Save As each with a `_snipped` suffix in the same folder. Click **Post-Snip** to process all manually-snipped pairs.
+- SU ID (`su_id`) is now written into `input.json` alongside the pgram pair numbers. Post-snip uses this to name `SU_<su>_raw.obj` correctly, including SU ranges like `22044-22048`, without fragile stem parsing.
+- Post-Snip skips individual un-snipped SUs rather than aborting the whole batch. Only a fully un-snipped batch (no output at all) is treated as a failure.
+- Post-Snip button tooltip updated to note that manually-snipped bins are required before running.
+
+### Added
+- 4 tests for `_write_input_json` covering the `su` field, missing `su_id` fallback, invalid pgram filtering, and SU range preservation.
+
 ## [1.0.1.0] - 2026-06-26
 
 ### Fixed
