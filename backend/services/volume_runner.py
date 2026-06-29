@@ -126,7 +126,7 @@ def _write_input_json(cards: list[dict], script_dir: str) -> int:
         top = str(card.get("top_pgram", ""))
         bot = str(card.get("bot_pgram", ""))
         if top.isdigit() and bot.isdigit():
-            pairs.append({"top": top, "bottom": bot})
+            pairs.append({"top": top, "bottom": bot, "su": str(card.get("su_id", ""))})
         else:
             _log(f"  skip {card.get('su_id', '?')}: missing/invalid pgrams (top={top!r}, bot={bot!r})")
 

@@ -446,7 +446,7 @@ export function SUTab() {
                       label="Post-Snip" sub="Script" color="#ec4899"
                       disabled={runActive}
                       count={byStage('to_be_post_snipped').length}
-                      title={`Run post_snip_script.py on ${byStage('to_be_post_snipped').length} card(s) in To Be Post-Snipped`}
+                      title={`Run post_snip_script.py on ${byStage('to_be_post_snipped').length} card(s) in To Be Post-Snipped — requires manually-snipped bins (open pre-snip pair in CC, crop, Save As with _snipped suffix)`}
                       onClick={() => handleVolumeRun('post_snip')}
                     />
                   </ActionGutter>
