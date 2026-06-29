@@ -139,7 +139,7 @@ This tab tracks individual stratigraphic units through the CloudComPy snip pipel
 **Columns (left to right):**
 1. **Not Started** — SU registered; waiting for both PLYs to be processed before it can enter the pipeline
 2. **To Be Pre-Snipped** — ready to run the pre-snip script (generates .bin point-cloud files in CloudCompare)
-3. **To Be Snipped** — pre-snip finished; the card can be snipped automatically (Auto-Snip button) or manually in CloudCompare
+3. **To Be Snipped** — pre-snip finished; open the pre-snip `.bin` pair in CloudCompare via **Open in CC ↗**, crop top and bottom to the SU boundary, and **Save As** each with a `_snipped` suffix in the same folder
 4. **To Be Post-Snipped** — snipping done; ready for post-snip to compute the final volume OBJ
 5. **Volume Created** — volume OBJ generated and available to review
 6. **SU Sheet Created** — SU data sheet completed
@@ -148,14 +148,14 @@ This tab tracks individual stratigraphic units through the CloudComPy snip pipel
 **Moving cards:**
 
 - **Drag and drop** a card to the next column, or use the **→ button** in the top-right of each card to advance it one step. Moving backward is always allowed.
-- Some transitions require a quick confirmation (e.g. dragging from To Be Snipped → To Be Post-Snipped confirms that you have snipped it manually in CloudCompare, not via the Auto-Snip script). Answer honestly.
+- Some transitions require a quick confirmation (e.g. dragging from To Be Snipped → To Be Post-Snipped confirms that you have cropped both bins in CloudCompare and saved them with the `_snipped` suffix). Answer honestly.
 
 **Gutter buttons between columns:**
 
 - **Move Ready → Pre-Snip** (between Not Started and To Be Pre-Snipped): moves all "ready" cards (both PLYs processed) in Not Started into To Be Pre-Snipped in one click.
-- **Run All Pipeline** (also between Not Started and To Be Pre-Snipped): runs the full pipeline in one click — moves ready cards, then sequentially runs pre-snip, auto-snip, post-snip, and create-SU-sheet scripts. Cards advance automatically when each script succeeds.
+- **Run All Pipeline** (also between Not Started and To Be Pre-Snipped): runs the full pipeline in one click — moves ready cards, then sequentially runs pre-snip, post-snip, and create-SU-sheet scripts. Cards advance automatically when each script succeeds. (Auto-snip is disabled; manual crop in CloudCompare is required between pre-snip and post-snip.)
 - **Pre-Snip Script** (between To Be Pre-Snipped and To Be Snipped): runs `pre_snip_script.py` on all cards in To Be Pre-Snipped.
-- **Auto-Snip Script** (between To Be Snipped and To Be Post-Snipped): runs `auto_snip_script.py`. Cards that go through auto-snip get a **Debug Img ↗** button you can click to review the snip result.
+- **Auto-Snip Script** (between To Be Snipped and To Be Post-Snipped): runs `auto_snip_script.py` (disabled — unreliable). The lab snips manually: use **Open in CC ↗**, crop top and bottom, and Save As with a `_snipped` suffix before running Post-Snip.
 - **Post-Snip Script** (between To Be Post-Snipped and Volume Created): runs `post_snip_script.py`.
 - **Create SU Sheet** (between Volume Created and SU Sheet Created): runs `generate_su_sheets.py`.
 
@@ -163,8 +163,8 @@ This tab tracks individual stratigraphic units through the CloudComPy snip pipel
 
 **Card action buttons:**
 
-- **Open in CC ↗** — visible on cards in *To Be Snipped*. Opens the two pre-snip `.bin` files in CloudCompare for manual review or snipping.
-- **Debug Img ↗** — visible on cards that were advanced by auto-snip. Opens the debug image in the default viewer.
+- **Open in CC ↗** — visible on cards in *To Be Snipped*. Opens the two pre-snip `.bin` files in CloudCompare. After opening: crop top and bottom to the SU boundary, then **Save As** each file with a `_snipped` suffix (e.g. `<top_id>_top_with_dist_for_<bot_id>_snipped.bin`) in the same `Data/<top_id>/` folder. Post-Snip picks these up automatically.
+- **Debug Img ↗** — visible on cards that were advanced by auto-snip (legacy; auto-snip is disabled in normal workflow). Opens the debug image in the default viewer.
 - **Volume ↗** — visible on cards in *Volume Created*. Opens the final volume OBJ in the default application.
 
 **Top and Bottom Pgram:** each card shows two number boxes for the photogrammetry job numbers covering the top and bottom of that SU. Click a box, type the number, then click anywhere else — it saves automatically. Both must be set (and both PLYs processed) before a card is considered "ready" to enter the pipeline.
