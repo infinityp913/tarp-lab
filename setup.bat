@@ -14,7 +14,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Installing dependencies...
+echo Installing Python dependencies...
 python -m pip install -r requirements.txt
 if errorlevel 1 (
     echo.
@@ -23,6 +23,42 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+
+echo Checking Node...
+npm --version >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo Node/npm is not installed or not found.
+    echo Install it from: https://nodejs.org/  (LTS version^)
+    echo Then run this file again.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo Installing frontend dependencies...
+cd frontend
+call npm install
+if errorlevel 1 (
+    echo.
+    echo Frontend install failed. Please ask Ananth for help.
+    echo.
+    cd /d "%~dp0"
+    pause
+    exit /b 1
+)
+
+echo Building frontend...
+call npm run build
+if errorlevel 1 (
+    echo.
+    echo Frontend build failed. Please ask Ananth for help.
+    echo.
+    cd /d "%~dp0"
+    pause
+    exit /b 1
+)
+cd /d "%~dp0"
 
 echo.
 echo Setup complete! You can now double-click start.bat to launch the dashboard.

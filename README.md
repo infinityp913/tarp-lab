@@ -87,11 +87,17 @@ port: 8000
 # Install dependencies (first time)
 pip install -r requirements.txt
 
+# Build the frontend (required — backend/static/ is gitignored, not committed)
+cd frontend && npm install && npm run build && cd ..
+
 # Start server (opens browser automatically)
 python3 -m backend.main
 
 # Open browser at http://127.0.0.1:8000
 ```
+
+> On Windows, `setup.bat` does the pip install + frontend build for you.
+> Re-run the build (`cd frontend && npm run build`) after pulling frontend changes.
 
 ## Development
 

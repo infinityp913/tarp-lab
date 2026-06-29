@@ -9,8 +9,8 @@ __pycache__/
 # Node
 frontend/node_modules/
 
-# Build output (committed so the app runs without npm)
-# backend/static/
+# Build output — gitignored; built locally (setup.bat on Windows, npm run build on Mac)
+backend/static/
 
 # Credentials & tokens (NEVER commit these)
 credentials.json
