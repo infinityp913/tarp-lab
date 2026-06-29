@@ -106,8 +106,6 @@ export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, ru
         onClick={(e) => e.stopPropagation()}
       >
         <AppButton label="↗ Metashape" onClick={(e) => handleOpen('metashape', e)} color="#7c3aed" />
-        <AppButton label="↗ CloudCompare" onClick={(e) => handleOpen('cloudcompare', e)} color="#0891b2" />
-        <AppButton label="↗ QGIS" onClick={(e) => handleOpen('qgis', e)} color="#16a34a" />
       </div>
 
       {hasFieldData && (
