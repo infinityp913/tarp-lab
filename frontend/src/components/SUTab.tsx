@@ -576,6 +576,11 @@ function VolumeRunBanner({ run, onDismiss }: { run: VolumeRunStatus; onDismiss: 
   }
   const kindLabel = run.kind ? (kindLabels[run.kind] ?? run.kind) : ''
   const isActive = run.active
+  // The script reports per-SU counts via progress.json; until the first report
+  // total is 0 and we fall back to the indeterminate bar.
+  const hasCounts = isActive && run.total > 0
+  const remaining = Math.max(0, run.total - run.processed)
+  const pct = hasCounts ? Math.min(100, Math.round((run.processed / run.total) * 100)) : 0
 
   return (
     <div style={runBannerStyle}>
@@ -583,11 +588,16 @@ function VolumeRunBanner({ run, onDismiss }: { run: VolumeRunStatus; onDismiss: 
         <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
           {isActive && <span style={spinnerStyle} />}
           {isActive
-            ? `Running ${kindLabel}…`
+            ? `Running ${run.step_label ?? kindLabel}…`
             : run.status === 'done'
               ? `${kindLabel} finished — ${run.cards_advanced} card${run.cards_advanced !== 1 ? 's' : ''} advanced`
               : `${kindLabel} failed`}
         </div>
+        {hasCounts && (
+          <div style={{ fontSize: 12, color: T.textSub, marginBottom: 4 }}>
+            {run.processed} / {run.total} SU{run.total !== 1 ? 's' : ''} processed · {remaining} left
+          </div>
+        )}
         {run.status === 'failed' && run.error && (
           <div style={{ fontSize: 12, color: '#f87171', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: 100, overflowY: 'auto' }}>
             {run.error}
@@ -595,7 +605,9 @@ function VolumeRunBanner({ run, onDismiss }: { run: VolumeRunStatus; onDismiss: 
         )}
         {isActive && (
           <div style={{ height: 6, borderRadius: 3, background: T.badgeBg, overflow: 'hidden', position: 'relative', marginTop: 4 }}>
-            <div style={indeterminateBarStyle} />
+            {hasCounts
+              ? <div style={{ height: '100%', width: `${pct}%`, background: '#8b5cf6', borderRadius: 3, transition: 'width 0.3s ease' }} />
+              : <div style={indeterminateBarStyle} />}
           </div>
         )}
       </div>

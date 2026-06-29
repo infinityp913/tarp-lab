@@ -33,7 +33,51 @@ _state: dict = {
     "status": "idle",   # idle | running | done | failed
     "error": None,
     "cards_advanced": 0,
+    "processed": 0,     # SUs finished so far (from the script's progress.json)
+    "total": 0,         # SUs to process this run (0 = unknown yet → indeterminate)
+    "step_label": None,  # chain runs: which step is running, e.g. "Post-Snip (3/4)"
 }
+
+# Set while a run is active so get_status() can read the script's per-SU progress.
+_progress_path: Optional[Path] = None
+
+
+def _progress_dir(kind: str, cfg) -> Optional[str]:
+    """Working dir where the script for `kind` writes its progress.json."""
+    if kind == "create_su_sheet":
+        return cfg.create_su_sheet_dir
+    return cfg.volume_script_dir
+
+
+def _arm_progress(kind: str, cfg) -> None:
+    """Point get_status() at this run's progress.json and remove any stale one."""
+    global _progress_path
+    d = _progress_dir(kind, cfg)
+    _progress_path = Path(d) / "progress.json" if d else None
+    if _progress_path is not None:
+        try:
+            _progress_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            _log(f"  could not clear stale progress.json: {e}")
+
+
+def _read_progress() -> Optional[tuple[int, int]]:
+    """Return (processed, total) from the active run's progress.json, or None.
+
+    Scripts write this file atomically; a missing/partial read just yields None so
+    get_status() falls back to the last known counters.
+    """
+    import json
+
+    if _progress_path is None:
+        return None
+    try:
+        data = json.loads(_progress_path.read_text())
+        return int(data.get("processed", 0)), int(data.get("total", 0))
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def _log(msg: str) -> None:
@@ -47,7 +91,12 @@ def _log(msg: str) -> None:
 
 def get_status() -> dict:
     with _lock:
-        return dict(_state)
+        snap = dict(_state)
+    if snap["active"]:
+        prog = _read_progress()
+        if prog is not None:
+            snap["processed"], snap["total"] = prog
+    return snap
 
 
 def cancel() -> dict:
@@ -186,6 +235,10 @@ def start_run(kind: str) -> dict:
         _state["status"] = "running"
         _state["error"] = None
         _state["cards_advanced"] = 0
+        _state["processed"] = 0
+        _state["total"] = 0
+        _state["step_label"] = None
+        _arm_progress(kind, get_config())
 
     thread = threading.Thread(target=_worker, args=(kind, cards), daemon=True)
     thread.start()
@@ -236,6 +289,10 @@ def _worker(kind: str, cards: list[dict]) -> None:
         _finish(False, "No valid cards to process (missing pgrams).", 0)
         return
 
+    # Estimate the total until the script writes its own; progress.json then wins.
+    with _lock:
+        _state["total"] = count
+
     _log(f"launching: {' '.join(cmd)} (cwd: {cwd})")
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
@@ -266,11 +323,16 @@ def _worker(kind: str, cards: list[dict]) -> None:
 
 
 def _finish(ok: bool, error: Optional[str], advanced: int) -> None:
+    global _progress_path
     with _lock:
         _state["active"] = False
         _state["status"] = "done" if ok else "failed"
         _state["error"] = error
         _state["cards_advanced"] = advanced
+        _state["step_label"] = None
+        if ok and _state["total"]:
+            _state["processed"] = _state["total"]
+    _progress_path = None
 
 
 def start_chain_run() -> dict:
@@ -307,6 +369,9 @@ def start_chain_run() -> dict:
         _state["status"] = "running"
         _state["error"] = None
         _state["cards_advanced"] = 0
+        _state["processed"] = 0
+        _state["total"] = 0
+        _state["step_label"] = None
 
     thread = threading.Thread(
         target=_chain_worker,
@@ -345,6 +410,10 @@ def _chain_worker(
         ("create_su_sheet", cfg.script_create_su_sheet, "volumetrics_created", "su_sheet_created",    None),
     ]
 
+    step_labels = {
+        "pre_snip": "Pre-Snip", "auto_snip": "Auto-Snip",
+        "post_snip": "Post-Snip", "create_su_sheet": "Create SU Sheet",
+    }
     for step_num, (kind, script, from_stage, to_stage, snip) in enumerate(steps, start=1):
         # Gather current cards in from_stage (includes any just advanced by previous step)
         su_rows = gsheets.get_su_rows()
@@ -357,6 +426,13 @@ def _chain_worker(
         if count == 0:
             _log(f"chain step {step_num} ({kind}): no valid cards, skipping script")
             continue
+
+        # Point progress at this step's script and reset the per-step bar.
+        with _lock:
+            _state["step_label"] = f"{step_labels[kind]} ({step_num}/{len(steps)})"
+            _state["processed"] = 0
+            _state["total"] = count
+        _arm_progress(kind, cfg)
 
         _log(f"chain step {step_num} ({kind}): launching {' '.join(cmd)} on {len(cards)} card(s)")
         try:
