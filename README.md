@@ -7,7 +7,7 @@ See also: [`tarp-field` repo](https://github.com/infinityp913/tarp-field) (separ
 ## Tabs
 
 - **Model Production**: Kanban board for `Pgram_Job_###` folders. Moving a card physically moves the folder on disk. Buttons launch Metashape, CloudCompare, and QGIS.
-- **SU Volumes**: Tracks stratigraphic units through the CloudComPy snip pipeline → volume OBJ → SU sheet → AIR upload. Cards move through: Not Started → To Be Pre-Snipped → To Be Snipped → To Be Post-Snipped → Volume Created → SU Sheet Created → Uploaded to AIR. Gutter buttons between columns launch the CloudComPy scripts (pre-snip, auto-snip, post-snip, create SU sheet) and advance the relevant cards automatically on success. SU cards have inline Top/Bottom Pgram number fields that save on blur.
+- **SU Volumes**: Tracks stratigraphic units through the CloudComPy snip pipeline → volume OBJ → SU sheet → AIR upload. Cards move through: Not Started → To Be Pre-Snipped → To Be Snipped → To Be Post-Snipped → Volume Created → SU Sheet Created → Uploaded to AIR. Gutter buttons launch the CloudComPy scripts (pre-snip, post-snip, create SU sheet); the operator manually crops bins in CloudCompare between pre-snip and post-snip. SU cards have inline Top/Bottom Pgram number fields that save on blur.
 
 ## Google Sheets schema
 
@@ -152,7 +152,7 @@ are matched.
 | To Be Aligned | To Overnight | Did the alignment script run successfully? |
 | To Overnight | Processed | Did the overnight script run succeed? |
 | To Be Pre-Snipped | To Be Snipped | Did not run pre-snip — use the Pre-Snip button. |
-| To Be Snipped | To Be Post-Snipped | Did not run auto-snip — use the Auto-Snip button, or confirm if manually snipped in CloudCompare. |
+| To Be Snipped | To Be Post-Snipped | Confirm manual crop: open the pre-snip bins in CloudCompare (Open in CC ↗), crop top & bottom, and Save As each with a `_snipped` suffix in the same `Data/<top_id>/` folder before running Post-Snip. |
 | To Be Post-Snipped | Volume Created | Did not run post-snip — use the Post-Snip button. |
 
 The SU snip transitions gate against accidental drag-and-drop. Cards can still be moved backward freely. The "→" button on each card advances it one step and also triggers the confirmation dialog where required.

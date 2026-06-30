@@ -1,8 +1,4 @@
-"""Tests for backend/services/volume_runner.py — per-SU progress overlay.
-
-get_status() merges the live progress.json the snip scripts write into the run
-state so the dashboard can render a determinate bar.
-"""
+"""Tests for backend/services/volume_runner.py — per-SU progress overlay and input.json writing."""
 import json
 
 import pytest
@@ -65,3 +61,40 @@ def test_no_overlay_when_idle(tmp_path):
     status = volume_runner.get_status()
     assert status["processed"] == 0
     assert status["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# _write_input_json
+# ---------------------------------------------------------------------------
+
+def test_write_input_json_emits_top_bottom_su(tmp_path):
+    cards = [{"top_pgram": "123", "bot_pgram": "456", "su_id": "20005"}]
+    count = volume_runner._write_input_json(cards, str(tmp_path))
+    assert count == 1
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data == [{"top": "123", "bottom": "456", "su": "20005"}]
+
+
+def test_write_input_json_missing_su_id_emits_empty_string(tmp_path):
+    cards = [{"top_pgram": "123", "bot_pgram": "456"}]
+    volume_runner._write_input_json(cards, str(tmp_path))
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data[0]["su"] == ""
+
+
+def test_write_input_json_skips_invalid_pgrams(tmp_path):
+    cards = [
+        {"top_pgram": "abc", "bot_pgram": "456", "su_id": "20001"},
+        {"top_pgram": "123", "bot_pgram": "456", "su_id": "20002"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path))
+    assert count == 1
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data[0]["su"] == "20002"
+
+
+def test_write_input_json_su_range_preserved(tmp_path):
+    cards = [{"top_pgram": "786", "bot_pgram": "787", "su_id": "22044-22048"}]
+    volume_runner._write_input_json(cards, str(tmp_path))
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data[0]["su"] == "22044-22048"
