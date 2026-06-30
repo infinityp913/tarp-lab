@@ -179,6 +179,12 @@ def _prepare_run(kind: str, script: str, cards: list[dict], cfg) -> tuple[list[s
         # Tell pre_snip/auto_snip where the overnight-exported PLY meshes live, instead
         # of the script's stale ~/Documents/TARP/ply default.
         env["TARP_PLY_DIR"] = str(Path(cfg.overnight_output_assets_root) / "PLY")
+    if env is not None and kind == "post_snip" and cfg.base_path:
+        # Tell post_snip where to write each SU's top OBJ so the Create-SU-Sheet QGIS
+        # script (generate_su_sheets.py) finds it: <base>/Volumetrics_<year>/SU Top OBJs/.
+        env["TARP_SU_TOP_OBJ_DIR"] = str(
+            Path(cfg.base_path) / f"Volumetrics_{cfg.season_year}" / "SU Top OBJs"
+        )
     return [cfg.cloudcompy_python, script], cfg.volume_script_dir, env, count
 
 
