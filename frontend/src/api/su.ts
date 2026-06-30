@@ -118,8 +118,13 @@ export async function openDebugImage(suId: string): Promise<void> {
   }
 }
 
-export async function startVolumeRun(kind: VolumeRunKind): Promise<{ started: boolean; count?: number }> {
-  const res = await fetch(`/api/su/run/${kind}`, { method: 'POST' })
+export async function startVolumeRun(
+  kind: VolumeRunKind,
+  suId?: string,
+): Promise<{ started: boolean; count?: number }> {
+  // Pass su_id to run the script on just one card (single-SU test run).
+  const qs = suId ? `?su_id=${encodeURIComponent(suId)}` : ''
+  const res = await fetch(`/api/su/run/${kind}${qs}`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)

@@ -266,11 +266,15 @@ def start_chain_run():
 
 
 @router.post("/run/{kind}")
-def start_volume_run(kind: str):
-    """Start a volume script run (kind: pre_snip | auto_snip | post_snip | create_su_sheet)."""
+def start_volume_run(kind: str, su_id: str | None = None):
+    """Start a volume script run (kind: pre_snip | auto_snip | post_snip | create_su_sheet).
+
+    Pass ?su_id=<id> to run the script on just that one card (must be in the
+    step's source stage) instead of the whole stage — used to test a single SU.
+    """
     if kind not in ("pre_snip", "auto_snip", "post_snip", "create_su_sheet"):
         raise HTTPException(status_code=400, detail=f"Unknown volume run type: {kind}")
-    result = volume_runner.start_run(kind)
+    result = volume_runner.start_run(kind, su_id=su_id)
     if not result.get("started"):
         msg = result.get("error", "Failed to start run")
         status = 409 if "already in progress" in msg else 400

@@ -180,10 +180,12 @@ def _prepare_run(kind: str, script: str, cards: list[dict], cfg) -> tuple[list[s
         # of the script's stale ~/Documents/TARP/ply default.
         env["TARP_PLY_DIR"] = str(Path(cfg.overnight_output_assets_root) / "PLY")
     if env is not None and kind == "post_snip" and cfg.base_path:
-        # Tell post_snip where to write each SU's top OBJ so the Create-SU-Sheet QGIS
-        # script (generate_su_sheets.py) finds it: <base>/Volumetrics_<year>/SU Top OBJs/.
-        env["TARP_SU_TOP_OBJ_DIR"] = str(
-            Path(cfg.base_path) / f"Volumetrics_{cfg.season_year}" / "SU Top OBJs"
+        # Tell post_snip where this season's Volumetrics_<year> root is. It writes each
+        # SU's final volume to <root>/Trench NNNNN/SU_<su>.obj (lab archival convention)
+        # and the top OBJ to <root>/SU Top OBJs/SU_<su>_top.obj, where the Create-SU-Sheet
+        # QGIS script (generate_su_sheets.py) reads it.
+        env["TARP_VOLUMETRICS_DIR"] = str(
+            Path(cfg.base_path) / f"Volumetrics_{cfg.season_year}"
         )
     return [cfg.cloudcompy_python, script], cfg.volume_script_dir, env, count
 
@@ -218,7 +220,12 @@ def _validate(kind: str) -> Optional[str]:
     return None
 
 
-def start_run(kind: str) -> dict:
+def start_run(kind: str, su_id: Optional[str] = None) -> dict:
+    """Start a volume run over every card in the step's source stage, or — when
+    su_id is given — over just that one card (used by the per-card single-SU
+    button to test a single SU). The single card must already be in the step's
+    source stage.
+    """
     with _lock:
         if _state["active"]:
             return {"started": False, "error": "A volume run is already in progress."}
@@ -230,9 +237,15 @@ def start_run(kind: str) -> dict:
         from_stage, _ = _STEPS[kind]
         su_rows = gsheets.get_su_rows()
         cards = [r for r in su_rows if r.get("stage") == from_stage]
-        if not cards:
-            from backend.models import SUEntry
-            label = SUEntry.stage_label(from_stage)
+
+        from backend.models import SUEntry
+        label = SUEntry.stage_label(from_stage)
+        if su_id is not None:
+            cards = [r for r in cards if str(r.get("su_id")) == str(su_id)]
+            if not cards:
+                return {"started": False,
+                        "error": f"SU {su_id} is not in '{label}'. Move it there first."}
+        elif not cards:
             return {"started": False, "error": f"No volume cards in '{label}' to process."}
 
         _state["active"] = True

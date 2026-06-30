@@ -466,11 +466,23 @@ def find_volume_bins_for_su(top_pgram: str, su_id: str = "") -> list[Path]:
 
 
 def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
-    """Find the final volume OBJ written by post_snip_script: Data/Final_Volumes/SU_{su_id}_raw.obj."""
+    """Find the final volume OBJ written by post_snip_script.
+
+    post_snip saves it to this season's Volumetrics folder under the SU's trench:
+    <base_path>/Volumetrics_<year>/Trench NNNNN/SU_<su_id>.obj (trench inferred from the
+    SU number, e.g. 20001 -> Trench 20000), matching the script's _trench_name().
+    """
     cfg = get_config()
-    if not cfg.volume_script_dir:
+    m = re.search(r"\d+", su_id)
+    if not cfg.base_path or not m:
         return None
-    obj = Path(cfg.volume_script_dir) / "Data" / "Final_Volumes" / f"SU_{su_id}_raw.obj"
+    trench = (int(m.group(0)) // 1000) * 1000
+    obj = (
+        Path(cfg.base_path)
+        / f"Volumetrics_{cfg.season_year}"
+        / f"Trench {trench}"
+        / f"SU_{su_id}.obj"
+    )
     return obj if obj.exists() else None
 
 

@@ -392,6 +392,8 @@ export function SUTab() {
                         }
                         onAdvance={next ? () => requestMove(entry.su_id, next, entry) : undefined}
                         nextStageLabel={next ? `Move to ${stageLabel(next)}` : undefined}
+                        runActive={runActive}
+                        onRunStarted={startPolling}
                       />
                     )
                   }}

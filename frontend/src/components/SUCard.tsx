@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
 import {
   openPly, openBothPly, updatePgrams,
-  openBins, openVolume, openDebugImage,
+  openBins, openVolume, openDebugImage, startVolumeRun,
 } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
@@ -15,9 +15,11 @@ interface Props {
   onUpdated: (entry: SUEntry) => void
   onAdvance?: () => void
   nextStageLabel?: string
+  runActive?: boolean
+  onRunStarted?: () => void
 }
 
-export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }: Props) {
+export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, runActive, onRunStarted }: Props) {
   const {
     attributes, listeners, setNodeRef, transform, isDragging,
   } = useDraggable({ id: entry.su_id })
@@ -68,6 +70,20 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
       await fn()
     } catch (err: unknown) {
       toast((err as Error).message || `Failed: ${key}`, 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  async function handlePostSnipOne(e: React.MouseEvent) {
+    e.stopPropagation()
+    setActionLoading('postsnip')
+    try {
+      await startVolumeRun('post_snip', entry.su_id)
+      toast(`Started post-snip on SU ${entry.su_id}…`, 'info')
+      onRunStarted?.()
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to start post-snip', 'error')
     } finally {
       setActionLoading(null)
     }
@@ -200,6 +216,19 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
             onClick={(e) => handleAction(e, 'bins', () => openBins(entry.su_id))}
           >
             {actionLoading === 'bins' ? '…' : 'Open in CC ↗'}
+          </button>
+        )}
+
+        {stage === 'to_be_post_snipped' && (
+          <button
+            style={{ ...actionBtn, borderColor: '#ec489966', color: '#f472b6' }}
+            disabled={busy || runActive}
+            title={runActive
+              ? 'A volume run is already in progress'
+              : `Run post-snip on just this SU (${entry.su_id}) — test a single card`}
+            onClick={handlePostSnipOne}
+          >
+            {actionLoading === 'postsnip' ? '…' : 'Post-Snip ↗'}
           </button>
         )}
 
