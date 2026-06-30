@@ -114,7 +114,7 @@ def open_bins(su_id: str):
     if not top_pgram.isdigit():
         raise HTTPException(status_code=422, detail="No valid top pgram set for this SU")
 
-    bins = find_volume_bins_for_su(top_pgram)
+    bins = find_volume_bins_for_su(top_pgram, su_id)
     if not bins:
         raise HTTPException(
             status_code=404,

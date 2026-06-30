@@ -2,6 +2,13 @@
 
 All notable changes to TARP Lab Dashboard are documented here.
 
+## [1.0.3.0] - 2026-06-30
+
+### Changed
+- Pre-snip now writes **one `.bin` pair per SU**, in its own `Data/SU<su>/` folder (replacing the per-top-pgram folder), so each SU's working files are isolated and self-describing. Filenames still carry the full top/bottom pgram stems.
+- Manual crop no longer needs a `_snipped` rename: open the SU's bins, crop, and **save over the same files**. Post-snip resolves each SU's pair from its `Data/SU<su>/` folder, and the `to_be_post_snipped` stage move is the "snipping done" signal.
+- **Open in CC ↗** now opens only the selected SU's two bins (from `Data/SU<su>/`) instead of every dist bin in the top folder.
+
 ## [1.0.2.0] - 2026-06-29
 
 ### Changed

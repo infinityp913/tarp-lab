@@ -421,11 +421,13 @@ def fix_su_folder_names(field_map: dict[str, dict]) -> dict:
     return {"renamed": renamed, "organized": organized, "skipped": skipped}
 
 
-def find_volume_bins_for_su(top_pgram: str) -> list[Path]:
-    """Find the two .bin files written by pre_snip_script for the given top pgram.
+def find_volume_bins_for_su(top_pgram: str, su_id: str = "") -> list[Path]:
+    """Find the two pre-snip .bin files for this SU.
 
-    Pre-snip saves files named *_top_with_dist_*.bin and *_bottom_with_dist_*.bin
-    inside Data/<Pgram_Job_{top_pgram}*>/.
+    Pre-snip writes one pair per SU into Data/SU<su_id>/ as
+    *_top_with_dist_*.bin and *_bottom_with_dist_*.bin. When su_id is given we
+    look there directly; otherwise (or if that folder is absent — legacy data)
+    we fall back to scanning the Data/<Pgram_Job_{top_pgram}*>/ folders.
     """
     cfg = get_config()
     if not cfg.volume_script_dir:
@@ -433,16 +435,34 @@ def find_volume_bins_for_su(top_pgram: str) -> list[Path]:
     data_dir = Path(cfg.volume_script_dir) / "Data"
     if not data_dir.exists():
         return []
+
+    def _dist_bins(folder: Path) -> list[Path]:
+        out = []
+        for f in folder.glob("*.bin"):
+            name_lower = f.name.lower()
+            if "_top_with_dist_" in name_lower or "_bottom_with_dist_" in name_lower:
+                out.append(f)
+        return out
+
+    su = str(su_id).strip()
+    if su:
+        su_folder = data_dir / f"SU{su}"
+        if su_folder.is_dir():
+            return _dist_bins(su_folder)
+
+    # Legacy layout: bins live in the top pgram's folder, prefixed SU<su>_.
     prefix = f"pgram_job_{str(top_pgram).strip()}"
+    su_marker = f"su{su.lower()}_" if su else ""
     bins: list[Path] = []
+    su_bins: list[Path] = []
     for d in data_dir.iterdir():
         if not d.is_dir() or not d.name.lower().startswith(prefix):
             continue
-        for f in d.glob("*.bin"):
-            name_lower = f.name.lower()
-            if "_top_with_dist_" in name_lower or "_bottom_with_dist_" in name_lower:
-                bins.append(f)
-    return bins
+        for f in _dist_bins(d):
+            bins.append(f)
+            if su_marker and f.name.lower().startswith(su_marker):
+                su_bins.append(f)
+    return su_bins or bins
 
 
 def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
