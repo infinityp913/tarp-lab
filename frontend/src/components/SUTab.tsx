@@ -453,16 +453,21 @@ export function SUTab() {
                     />
                   </ActionGutter>
                 )}
-                {key === 'volumetrics_created' && (
-                  <ActionGutter>
-                    <GutterButton label="Create" sub="SU Sheet" color="#22c55e"
-                      disabled={runActive}
-                      count={byStage('volumetrics_created').length}
-                      title={`Run create_su_sheet_script.py on ${byStage('volumetrics_created').length} Volume Created card(s) then move to SU Sheet Created`}
-                      onClick={() => handleVolumeRun('create_su_sheet')}
-                    />
-                  </ActionGutter>
-                )}
+                {key === 'volumetrics_created' && (() => {
+                  const readyForSheet = byStage('volumetrics_created').filter((e) => e.ready_for_sheet)
+                  return (
+                    <ActionGutter>
+                      <GutterButton label="Create" sub="SU Sheet" color="#22c55e"
+                        disabled={runActive || readyForSheet.length === 0}
+                        count={readyForSheet.length}
+                        title={readyForSheet.length === 0
+                          ? 'Check "Ready for SU sheet" on the Volume Created cards you want to include first'
+                          : `Run create_su_sheet_script.py on ${readyForSheet.length} checked card(s) then move to SU Sheet Created`}
+                        onClick={() => handleVolumeRun('create_su_sheet')}
+                      />
+                    </ActionGutter>
+                  )
+                })()}
               </Fragment>
             ))}
           </div>

@@ -4,7 +4,8 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
 import {
   openPly, openBothPly, updatePgrams,
-  openBins, openVolume, openDebugImage, startVolumeRun,
+  openBins, openPostSnipBin, openVolume, openTopVolume, openDebugImage, openLidar, startVolumeRun,
+  updateReadyForSheet,
 } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
@@ -89,6 +90,19 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
     }
   }
 
+  async function handleReadyForSheetToggle(e: React.ChangeEvent<HTMLInputElement>) {
+    const next = e.target.checked
+    setActionLoading('readysheet')
+    try {
+      await updateReadyForSheet(entry.su_id, next)
+      onUpdated({ ...entry, ready_for_sheet: next })
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to update readiness', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   async function handlePgramBlur() {
     if (top === savedTop.current && bot === savedBot.current) return
     try {
@@ -119,7 +133,7 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
           {entry.ready && (
             <span
               style={readyBadge}
-              title="Ready to extract — both top & bottom PLYs are processed"
+              title="Ready to extract — both top & bottom PLYs are processed and a LiDAR scan exists"
             >
               ✓ Ready
             </span>
@@ -219,6 +233,17 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
           </button>
         )}
 
+        {stage === 'to_be_snipped' && entry.has_lidar && (
+          <button
+            style={{ ...actionBtn, borderColor: '#f59e0b66', color: '#fbbf24' }}
+            disabled={busy}
+            title="Reveal this SU's LiDAR scan in Explorer and open the USDZ web viewer (drag the file in)"
+            onClick={(e) => handleAction(e, 'lidar', () => openLidar(entry.su_id))}
+          >
+            {actionLoading === 'lidar' ? '…' : 'LiDAR ↗'}
+          </button>
+        )}
+
         {stage === 'to_be_post_snipped' && (
           <button
             style={{ ...actionBtn, borderColor: '#ec489966', color: '#f472b6' }}
@@ -245,6 +270,17 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
 
         {stage === 'volumetrics_created' && (
           <button
+            style={{ ...actionBtn, borderColor: '#8b5cf666', color: '#a78bfa' }}
+            disabled={busy}
+            title="Open the post-snip debug .bin in CloudCompare"
+            onClick={(e) => handleAction(e, 'postsnipbin', () => openPostSnipBin(entry.su_id))}
+          >
+            {actionLoading === 'postsnipbin' ? '…' : 'Debug in CC ↗'}
+          </button>
+        )}
+
+        {stage === 'volumetrics_created' && (
+          <button
             style={{ ...actionBtn, borderColor: '#22c55e66', color: '#4ade80' }}
             disabled={busy}
             title="Open the final volume OBJ mesh"
@@ -253,7 +289,42 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
             {actionLoading === 'volume' ? '…' : 'Volume ↗'}
           </button>
         )}
+
+        {stage === 'volumetrics_created' && (
+          <button
+            style={{ ...actionBtn, borderColor: '#14b8a666', color: '#2dd4bf' }}
+            disabled={busy}
+            title="Open the SU top OBJ mesh"
+            onClick={(e) => handleAction(e, 'topvolume', () => openTopVolume(entry.su_id))}
+          >
+            {actionLoading === 'topvolume' ? '…' : 'Top Volume ↗'}
+          </button>
+        )}
       </div>
+
+      {/* Ready-for-SU-sheet checkbox — Create SU Sheet only runs on checked cards */}
+      {stage === 'volumetrics_created' && (
+        <label
+          style={{
+            ...readyForSheetRow,
+            ...(entry.ready_for_sheet ? readyForSheetRowChecked : null),
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          title="Mark this card ready for SU sheet creation — the Create SU Sheet button only runs on checked cards"
+        >
+          <input
+            type="checkbox"
+            checked={!!entry.ready_for_sheet}
+            disabled={actionLoading === 'readysheet'}
+            onChange={handleReadyForSheetToggle}
+            style={{ cursor: 'pointer', accentColor: '#22c55e', margin: 0 }}
+          />
+          <span>
+            {actionLoading === 'readysheet' ? 'Saving…' : 'Ready for SU sheet'}
+          </span>
+        </label>
+      )}
     </div>
   )
 }
@@ -274,6 +345,18 @@ const readyBadge: React.CSSProperties = {
   border: '1px solid #22c55e66', borderRadius: 20,
   padding: '0 7px', fontSize: 10, fontWeight: 700,
   lineHeight: 1.7, letterSpacing: '0.02em', whiteSpace: 'nowrap',
+}
+
+const readyForSheetRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  marginTop: 6, padding: '4px 7px', borderRadius: 4,
+  border: '1px solid #22c55e33', background: '#22c55e0d',
+  color: T.textMuted, fontSize: 11, fontWeight: 600,
+  cursor: 'pointer', userSelect: 'none',
+}
+
+const readyForSheetRowChecked: React.CSSProperties = {
+  border: '1px solid #22c55e66', background: '#22c55e1f', color: '#4ade80',
 }
 
 const advanceBtn: React.CSSProperties = {

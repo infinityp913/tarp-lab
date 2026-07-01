@@ -4,12 +4,19 @@ Called by the SU router (manual "Scan PLY" button) and the pgram router
 (auto-triggered when a job lands in "processed" stage).
 """
 import logging
+import re
+from pathlib import Path
 
 from backend.models import SUEntry, cet_now, expand_su_range, trench_from_su_id
 from backend.services import gsheets
 from backend.services.filesystem import scan_filesystem, scan_ply_files
 
 logger = logging.getLogger(__name__)
+
+# LiDAR USDZ scans live here, named like "tarpf24441-SU_21001.usdz". A single
+# file may cover several SUs, e.g. "...-SU_22018_22019_22021.usdz".
+USDZ_DIR = Path(r"C:\Users\Public\SynologyDrive\tharros_syn_2")
+_USDZ_SU_RE = re.compile(r"-SU_([0-9_]+)\.usdz$", re.IGNORECASE)
 
 
 def ready_pgram_nums() -> set[int]:
@@ -21,25 +28,85 @@ def ready_pgram_nums() -> set[int]:
     return {ply["pgram_num"] for ply in scan_ply_files()}
 
 
-def is_su_ready(top_pgram: str, bot_pgram: str, ready_nums: set[int]) -> bool:
+def usdz_su_nums() -> set[str]:
+    """SU numbers (as strings) that have a matching LiDAR USDZ scan on disk.
+
+    If the folder is unreachable (e.g. the Synology drive is offline), returns
+    an empty set so the SUs count as having no scan and are gated out of
+    readiness — a missing drive must not silently pass the LiDAR check.
+    """
+    nums: set[str] = set()
+    try:
+        if not USDZ_DIR.is_dir():
+            logger.warning(f"usdz_su_nums: scan folder not reachable: {USDZ_DIR}")
+            return nums
+        for f in USDZ_DIR.glob("*.usdz"):
+            m = _USDZ_SU_RE.search(f.name)
+            if m:
+                nums.update(m.group(1).split("_"))
+    except OSError as e:
+        logger.warning(f"usdz_su_nums: could not read {USDZ_DIR}: {e}")
+    return nums
+
+
+def find_usdz_for_su(su_id: str) -> list[Path]:
+    """LiDAR USDZ scan file(s) whose name includes this SU number.
+
+    One file may cover several SUs, so any file listing this SU number matches.
+    Returns an empty list if none match or the folder is unreachable.
+    """
+    su = str(su_id).strip()
+    matches: list[Path] = []
+    try:
+        if not USDZ_DIR.is_dir():
+            logger.warning(f"find_usdz_for_su: scan folder not reachable: {USDZ_DIR}")
+            return matches
+        for f in sorted(USDZ_DIR.glob("*.usdz")):
+            m = _USDZ_SU_RE.search(f.name)
+            if m and su in m.group(1).split("_"):
+                matches.append(f)
+    except OSError as e:
+        logger.warning(f"find_usdz_for_su: could not read {USDZ_DIR}: {e}")
+    return matches
+
+
+def is_su_ready(
+    top_pgram: str,
+    bot_pgram: str,
+    su_id: str,
+    ready_nums: set[int],
+    usdz_nums: set[str],
+) -> bool:
     """Whether a volume card is ready for its volume to be extracted.
 
     Ready means BOTH the top and bottom pgrams are known and processed
-    (their PLY files exist). Only ready cards can have the create-volumes
-    script run on them and be dragged to 'Volume Created'.
+    (their PLY files exist) AND the SU has a matching LiDAR USDZ scan on disk.
+    Only ready cards can be moved from 'Not Started' into the pre-snip pipeline.
     """
     def known_and_processed(val: str) -> bool:
         val = str(val).strip()
         return val.isdigit() and int(val) in ready_nums
 
-    return known_and_processed(top_pgram) and known_and_processed(bot_pgram)
+    has_lidar = str(su_id).strip() in usdz_nums
+    return known_and_processed(top_pgram) and known_and_processed(bot_pgram) and has_lidar
 
 
 def annotate_readiness(rows: list[dict]) -> list[dict]:
-    """Return copies of SU rows each tagged with a computed `ready` boolean."""
+    """Return copies of SU rows each tagged with computed `ready` and `has_lidar` booleans."""
     ready_nums = ready_pgram_nums()
+    usdz_nums = usdz_su_nums()
     return [
-        {**row, "ready": is_su_ready(row.get("top_pgram", ""), row.get("bot_pgram", ""), ready_nums)}
+        {
+            **row,
+            "ready": is_su_ready(
+                row.get("top_pgram", ""),
+                row.get("bot_pgram", ""),
+                row.get("su_id", ""),
+                ready_nums,
+                usdz_nums,
+            ),
+            "has_lidar": str(row.get("su_id", "")).strip() in usdz_nums,
+        }
         for row in rows
     ]
 

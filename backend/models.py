@@ -72,6 +72,7 @@ class SUEntry(BaseModel):
     notes: str = ""
     last_updated: str = ""
     snip_method: str = ""  # "auto" when auto-snip advanced this card; "" otherwise
+    ready_for_sheet: bool = False  # user-checked: include this card in Create SU Sheet runs
 
     @classmethod
     def stage_label(cls, stage: str) -> str:
@@ -116,6 +117,10 @@ class UpdateNotesRequest(BaseModel):
 class UpdateSUPgramsRequest(BaseModel):
     top_pgram: str = ""
     bot_pgram: str = ""
+
+
+class UpdateReadyForSheetRequest(BaseModel):
+    ready: bool
 
 
 class CreateSUEntryRequest(BaseModel):

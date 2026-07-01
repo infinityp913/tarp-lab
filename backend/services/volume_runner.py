@@ -89,6 +89,22 @@ def _log(msg: str) -> None:
         pass
 
 
+def _log_script_output(kind: str, stdout: Optional[str], stderr: Optional[str]) -> None:
+    """Append a volume script's captured stdout/stderr to the log, one tagged line
+    each, so per-SU detail (trim thresholds, warnings) is visible after the run."""
+    for stream, marker in ((stdout, "|"), (stderr, "!")):
+        text = (stream or "").rstrip()
+        if not text:
+            continue
+        try:
+            with open(LOG_PATH, "a") as f:
+                f.write(f"VOL --- {kind} {'stdout' if marker == '|' else 'stderr'} ---\n")
+                for line in text.splitlines():
+                    f.write(f"VOL {marker} {line}\n")
+        except OSError:
+            pass
+
+
 def get_status() -> dict:
     with _lock:
         snap = dict(_state)
@@ -245,6 +261,13 @@ def start_run(kind: str, su_id: Optional[str] = None) -> dict:
             if not cards:
                 return {"started": False,
                         "error": f"SU {su_id} is not in '{label}'. Move it there first."}
+        elif kind == "create_su_sheet":
+            # Only process cards the user checked "ready for SU sheet creation".
+            cards = [r for r in cards if r.get("ready_for_sheet")]
+            if not cards:
+                return {"started": False,
+                        "error": "No Volume Created cards are checked ready for SU sheet "
+                                 "creation. Check the box on the cards you want to include."}
         elif not cards:
             return {"started": False, "error": f"No volume cards in '{label}' to process."}
 
@@ -318,6 +341,11 @@ def _worker(kind: str, cards: list[dict]) -> None:
     except Exception as e:
         _finish(False, str(e), 0)
         return
+
+    # Persist the script's own stdout/stderr to the log. subprocess output is piped
+    # (not inherited), so without this the per-SU detail lines — e.g. the top-mesh
+    # distance-trim threshold used for tuning — are lost on a successful run.
+    _log_script_output(kind, proc.stdout, proc.stderr)
 
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
@@ -437,6 +465,9 @@ def _chain_worker(
         # Gather current cards in from_stage (includes any just advanced by previous step)
         su_rows = gsheets.get_su_rows()
         cards = [r for r in su_rows if r.get("stage") == from_stage]
+        if kind == "create_su_sheet":
+            # Mirror the standalone run: only cards checked ready for SU sheet creation.
+            cards = [r for r in cards if r.get("ready_for_sheet")]
         if not cards:
             _log(f"chain step {step_num} ({kind}): no cards in '{from_stage}', skipping script")
             continue

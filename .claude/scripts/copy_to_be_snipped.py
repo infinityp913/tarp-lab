@@ -37,6 +37,28 @@ TARGET_STAGE = "to_be_snipped"
 DEFAULT_USDZ_DIR = Path(r"C:\Users\Public\SynologyDrive\tharros_syn_2")
 _USDZ_SU_RE = re.compile(r"-SU_([0-9_]+)\.usdz$", re.IGNORECASE)
 
+# Persistent record of SUs already copied out for manual snipping in past runs,
+# so subsequent runs don't hand the same SU to an operator twice. Lives next to
+# this script; a JSON list of su_id strings (e.g. ["20013", "21001"]).
+DEFAULT_LEDGER = Path(__file__).with_name("copied_sus.json")
+
+
+def load_ledger(path: Path) -> set[str]:
+    """Return the set of su_ids recorded as already copied (empty if none)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return set(json.load(fh))
+    except FileNotFoundError:
+        return set()
+    except (OSError, ValueError) as e:  # noqa: BLE001 - corrupt/unreadable ledger
+        raise SystemExit(f"ERROR: could not read ledger {path}: {e}")
+
+
+def save_ledger(path: Path, su_ids: set[str]) -> None:
+    """Write the ledger back as a sorted JSON list."""
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(sorted(su_ids), fh, indent=2)
+
 
 def usdz_matches(usdz_dir: Path, su_ids: list[str]) -> dict[str, list[Path]]:
     """Map each SU id to the USDZ scan files whose name includes that SU number."""
@@ -55,7 +77,11 @@ def usdz_matches(usdz_dir: Path, su_ids: list[str]) -> dict[str, list[Path]]:
 
 
 def get_to_be_snipped(api_url: str) -> list[str]:
-    """Return the su_id list for cards currently in the to_be_snipped stage."""
+    """Return su_ids for 'To Be Snipped' cards that are ready to extract.
+
+    A card is included only when its ``ready`` flag is true (server-computed:
+    both top & bottom pgrams are processed and a matching LiDAR scan exists).
+    """
     try:
         with urlopen(api_url, timeout=20) as resp:
             rows = json.load(resp)
@@ -65,7 +91,11 @@ def get_to_be_snipped(api_url: str) -> list[str]:
             f"       ({e})\n"
             f"       Start the backend (python -m backend.main) and try again."
         )
-    return [r["su_id"] for r in rows if r.get("stage") == TARGET_STAGE]
+    return [
+        r["su_id"]
+        for r in rows
+        if r.get("stage") == TARGET_STAGE and r.get("ready")
+    ]
 
 
 def main() -> int:
@@ -114,6 +144,21 @@ def main() -> int:
         help="Skip copying the corresponding USDZ LiDAR scans into each SU folder.",
     )
     parser.add_argument(
+        "--ledger",
+        default=str(DEFAULT_LEDGER),
+        help="JSON file recording SUs already copied in past runs (skipped this run).",
+    )
+    parser.add_argument(
+        "--no-ledger",
+        action="store_true",
+        help="Ignore the ledger: don't skip previously-copied SUs and don't record new ones.",
+    )
+    parser.add_argument(
+        "--reset-ledger",
+        action="store_true",
+        help="Clear the ledger before this run (start tracking copied SUs from scratch).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be copied without copying.",
@@ -128,24 +173,38 @@ def main() -> int:
 
     all_su_ids = get_to_be_snipped(args.api_url)
     if not all_su_ids:
-        print("No SUs are currently in the 'To Be Snipped' stage. Nothing to copy.")
+        print("No ready-to-extract SUs are in the 'To Be Snipped' stage. Nothing to copy.")
         return 0
 
-    # Deterministic split so the two machines never pick the same SU.
+    ledger_path = Path(args.ledger)
+    already = set() if (args.no_ledger or args.reset_ledger) else load_ledger(ledger_path)
+
+    # Deterministic 50% split over the FULL ready set first, so the two machines
+    # always partition the same universe the same way regardless of what has been
+    # copied already. Each machine owns a fixed half.
     ordered = sorted(all_su_ids)
     mid = (len(ordered) + 1) // 2  # first-half gets the larger slice on odd counts
     if args.portion == "first-half":
-        su_ids = ordered[:mid]
-        other = ordered[mid:]
+        portion, other = ordered[:mid], ordered[mid:]
     elif args.portion == "second-half":
-        su_ids = ordered[mid:]
-        other = ordered[:mid]
+        portion, other = ordered[mid:], ordered[:mid]
     else:
-        su_ids, other = ordered, []
+        portion, other = ordered, []
 
-    print(f"{len(all_su_ids)} SU(s) in 'To Be Snipped'; copying portion='{args.portion}' ({len(su_ids)}).")
+    # Then drop SUs already handed out in past runs from this machine's half.
+    su_ids = [s for s in portion if s not in already]
+    skipped_prev = [s for s in portion if s in already]
+
+    print(f"{len(all_su_ids)} ready-to-extract SU(s) in 'To Be Snipped'; "
+          f"portion='{args.portion}' owns {len(portion)}, {len(su_ids)} new to copy.")
+    if skipped_prev:
+        print(f"  (skipping {len(skipped_prev)} already copied in past runs: "
+              f"{', '.join('SU' + s for s in skipped_prev)})")
     if other:
-        print(f"  (other half, NOT copied here: {', '.join('SU' + s for s in other)})")
+        print(f"  (other half, NOT this machine's: {', '.join('SU' + s for s in other)})")
+    if not su_ids:
+        print("Every SU in this half has already been copied. Nothing new to copy.")
+        return 0
     print(f"Source: {data_dir}")
     print(f"Dest:   {dest_root}")
     print()
@@ -196,6 +255,11 @@ def main() -> int:
                     print(f"    USDZ  {f.name}  ->  SU{su}\\")
                 usdz_copied += 1
 
+    # Record the SUs actually copied so future runs skip them.
+    if copied and not args.no_ledger and not args.dry_run:
+        updated = (set() if args.reset_ledger else already) | set(copied)
+        save_ledger(ledger_path, updated)
+
     print()
     verb = "Would copy" if args.dry_run else "Copied"
     print(f"{verb} {len(copied)} SU folder(s) to {dest_root}")
@@ -205,6 +269,8 @@ def main() -> int:
             print(f"  ({len(usdz_missing)} SU(s) had no USDZ scan: {', '.join('SU' + s for s in usdz_missing)})")
     if missing:
         print(f"WARNING: {len(missing)} SU(s) had no source folder: {', '.join(missing)}")
+    if copied and not args.no_ledger and not args.dry_run:
+        print(f"Ledger updated: {ledger_path}")
     return 0
 
 

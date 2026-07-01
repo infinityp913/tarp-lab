@@ -93,14 +93,15 @@ def test_skips_pgram_with_no_su_source(patch_sources):
 
 
 def test_annotate_readiness(monkeypatch):
-    """A card is ready only when BOTH pgrams are known and have a PLY on disk."""
+    """A card is ready only when BOTH pgrams have a PLY AND the SU has a USDZ scan."""
     monkeypatch.setattr(volume, "scan_ply_files", lambda: [
         {"pgram_num": 100, "filename": "Pgram_Job_100.ply", "path": "x"},
         {"pgram_num": 200, "filename": "Pgram_Job_200.ply", "path": "x"},
     ])
+    monkeypatch.setattr(volume, "usdz_su_nums", lambda: {"1", "2", "3", "4", "5"})
 
     rows = [
-        {"su_id": "1", "top_pgram": "100", "bot_pgram": "200"},  # both processed → ready
+        {"su_id": "1", "top_pgram": "100", "bot_pgram": "200"},  # both processed + scan → ready
         {"su_id": "2", "top_pgram": "100", "bot_pgram": "999"},  # bot has no PLY
         {"su_id": "3", "top_pgram": "100", "bot_pgram": ""},     # bot unknown
         {"su_id": "4", "top_pgram": "", "bot_pgram": "200"},     # top unknown
@@ -112,6 +113,26 @@ def test_annotate_readiness(monkeypatch):
     assert [r["ready"] for r in out] == [True, False, False, False, False]
     # Source rows are not mutated.
     assert "ready" not in rows[0]
+
+
+def test_annotate_readiness_requires_usdz_scan(monkeypatch):
+    """A card with both PLYs but no matching USDZ scan is not ready."""
+    monkeypatch.setattr(volume, "scan_ply_files", lambda: [
+        {"pgram_num": 100, "filename": "Pgram_Job_100.ply", "path": "x"},
+        {"pgram_num": 200, "filename": "Pgram_Job_200.ply", "path": "x"},
+    ])
+    monkeypatch.setattr(volume, "usdz_su_nums", lambda: {"1"})
+
+    rows = [
+        {"su_id": "1", "top_pgram": "100", "bot_pgram": "200"},  # has scan → ready
+        {"su_id": "2", "top_pgram": "100", "bot_pgram": "200"},  # no scan → not ready
+    ]
+
+    out = volume.annotate_readiness(rows)
+
+    assert [r["ready"] for r in out] == [True, False]
+    # has_lidar reflects scan presence independent of PLY/pgram readiness.
+    assert [r["has_lidar"] for r in out] == [True, False]
 
 
 def test_field_and_folder_sources_union(patch_sources):

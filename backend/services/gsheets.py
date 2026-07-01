@@ -92,7 +92,8 @@ SU_AIR = 6
 SU_NOTES = 7
 SU_UPDATED = 8
 SU_SNIP_METHOD_COL = 9  # "auto" when auto-snip advanced this card; "" otherwise
-SU_COLS = 10
+SU_READY_SHEET = 10     # TRUE when the card is checked ready for SU-sheet creation
+SU_COLS = 11
 
 # The five trench-specific SU tabs
 _SU_TRENCH_TABS = [
@@ -457,6 +458,7 @@ def _su_header() -> list:
         "Volume Created", "SU Sheet Created",
         "Uploaded to AIR",
         "Notes", "Last Updated (CET)", "Snip Method",
+        "Ready for SU Sheet",
     ]
 
 
@@ -499,6 +501,7 @@ def _su_to_row(entry: SUEntry) -> list:
         entry.notes,
         cet_now(),
         entry.snip_method,
+        bool(getattr(entry, "ready_for_sheet", False)),
     ]
 
 
@@ -598,6 +601,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
         if isinstance(notes, bool) or str(notes).upper() in ("TRUE", "FALSE"):
             notes = ""
         snip_method = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
+        ready_for_sheet = _bool(row[SU_READY_SHEET]) if len(row) > SU_READY_SHEET else False
         result.append({
             "su_id": row[SU_ID],
             "top_pgram": str(row[SU_TOP_PGRAM]),
@@ -607,6 +611,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
             "notes": notes,
             "last_updated": row[SU_UPDATED],
             "snip_method": snip_method,
+            "ready_for_sheet": ready_for_sheet,
         })
     return result
 
@@ -655,7 +660,7 @@ def get_su_rows() -> list[dict]:
     if not is_available():
         return []
 
-    ranges = [f"{tab}!A:J" for tab in _SU_TRENCH_TABS]
+    ranges = [f"{tab}!A:K" for tab in _SU_TRENCH_TABS]
     all_rows = _batch_read_ranges(ranges)
 
     if all_rows is None:
@@ -773,7 +778,7 @@ def upsert_su(entry: SUEntry):
     if not tab:
         _log_error(f"upsert_su: cannot determine tab for SU {entry.su_id}")
         return
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError(f"Google Sheets read failed during upsert_su ({tab})")
     data = rows[1:] if len(rows) > 1 else []
@@ -783,7 +788,7 @@ def upsert_su(entry: SUEntry):
         while len(row) < SU_COLS:
             row.append("")
         if row[SU_ID] == entry.su_id:
-            _write_range(f"{tab}!A{i + 2}:H{i + 2}", [new_row])
+            _write_range(f"{tab}!A{i + 2}:K{i + 2}", [new_row])
             _invalidate_su_cache()
             return
 
@@ -801,7 +806,7 @@ def update_su_stage(su_id: str, stage: str, snip_method: Optional[str] = None):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     vol, sheet, air = _su_checkboxes(stage)
@@ -828,7 +833,7 @@ def update_su_pgrams(su_id: str, top_pgram: str, bot_pgram: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     top = int(top_pgram) if str(top_pgram).isdigit() else (top_pgram or "")
@@ -847,12 +852,34 @@ def update_su_notes(su_id: str, notes: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0] == su_id:
             _write_range(f"{tab}!H{i}:I{i}", [[notes, cet_now()]])
+            _invalidate_su_cache()
+            return
+    raise ValueError(f"SU {su_id} not found in {tab}")
+
+
+def update_su_ready_for_sheet(su_id: str, ready: bool):
+    """Set the 'Ready for SU Sheet' checkbox (col K) for an SU entry.
+
+    Only touches col K so it never disturbs the stage/notes/timestamp columns —
+    the Create-SU-Sheet run reads this flag to pick which Volume Created cards to process.
+    """
+    if not is_available():
+        raise RuntimeError("Google Sheets is unavailable")
+    tab = _su_tab_for(su_id)
+    if not tab:
+        raise ValueError(f"Cannot determine trench tab for SU {su_id}")
+    rows = _read_range(f"{tab}!A:K")
+    if rows is None:
+        raise RuntimeError("Google Sheets read timed out")
+    for i, row in enumerate(rows[1:], start=2):
+        if row and row[0] == su_id:
+            _write_range(f"{tab}!K{i}:K{i}", [[bool(ready)]])
             _invalidate_su_cache()
             return
     raise ValueError(f"SU {su_id} not found in {tab}")
@@ -905,11 +932,11 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
         trench = tab.replace("Trench ", "")
         entries = entries_by_trench.get(trench, [])
         su_rows = [_su_header()] + [_su_to_row(e) for e in entries]
-        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:J"))
+        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:K"))
         _write_range(f"{tab}!A1", su_rows)
         tab_id = trench_tab_ids.get(tab, 0)
         if tab_id:
-            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR])  # SU_COLS = 10
+            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR, SU_READY_SHEET])
 
     _invalidate_pgram_cache()
     _invalidate_su_cache()

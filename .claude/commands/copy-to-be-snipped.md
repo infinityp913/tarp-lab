@@ -4,18 +4,33 @@ argument-hint: "[drive, e.g. D: or 'Seagate 5TB']"
 allowed-tools: Bash, AskUserQuestion
 ---
 
-Copy **half** of the SU folders currently in the **To Be Snipped** stage from
-`~/cloudcomparescript/Data` to a destination drive, into a folder named
-`Temp folder for manual snipping` (created if it doesn't exist).
+Copy **half** of the **ready-to-extract** SU folders currently in the
+**To Be Snipped** stage from `~/cloudcomparescript/Data` to a destination drive,
+into a folder named `Temp folder for manual snipping` (created if it doesn't exist).
 
-Only the first half (a deterministic 50% slice of the sorted SU list) is copied,
-via `--portion first-half`.
+Only cards whose `ready` flag is set (server-computed: both top & bottom pgrams
+processed and a matching LiDAR scan exists) are considered — the same "Ready to
+extract" state shown on the kanban board.
+
+**Order of operations (important):** the deterministic 50% split is taken over the
+*full* ready set first (this machine owns `first-half`), and only *then* are
+already-copied SUs removed from that half. So each run copies "this machine's half
+of all ready SUs, minus the ones already handed out." The split is over the whole
+universe — not the not-yet-copied remainder — so the two machines always partition
+the same set the same way regardless of copy history.
 
 The corresponding LiDAR **USDZ scans** from
 `C:\Users\Public\SynologyDrive\tharros_syn_2` are copied into each SU folder too.
 Scans are matched by SU number from the filename (e.g. `tarpf24441-SU_21001.usdz`
 → `SU21001`); one file may cover several SUs. This is on by default — pass
 `--no-usdz` to skip it.
+
+**SUs already copied in past runs are skipped**, so an operator is never handed
+the same SU twice. The script keeps a ledger at
+`.claude/scripts/copied_sus.json` (a JSON list of su_ids); each run excludes any
+SU already in it *before* taking the first-half slice, then records the SUs it
+just copied. Use `--no-ledger` to ignore it for one run, or `--reset-ledger` to
+start tracking from scratch.
 
 The list of "to be snipped" SUs is read live from the dashboard API, so it always
 matches the kanban board. The backend must be running.

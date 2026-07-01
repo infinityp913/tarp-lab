@@ -8,6 +8,7 @@ from backend.models import PgramJob, SUEntry, cet_now
 from backend.services.gsheets import (
     PG_COLS, PG_NUM, PG_TRENCH, PG_NOTES, PG_UPDATED,
     SU_COLS, SU_ID, SU_TOP_PGRAM, SU_BOT_PGRAM, SU_VOL, SU_SHEET, SU_AIR, SU_NOTES,
+    SU_READY_SHEET,
     _pg_num_str,
     _blank_if_na,
     _job_to_row,
@@ -52,7 +53,7 @@ def test_pg_cols_count():
 
 
 def test_su_cols_count():
-    assert SU_COLS == 10
+    assert SU_COLS == 11
     assert len(_su_header()) == SU_COLS
 
 
@@ -105,6 +106,15 @@ def test_su_to_row_empty_pgrams():
     row = _su_to_row(entry)
     assert row[SU_TOP_PGRAM] == ""
     assert row[SU_BOT_PGRAM] == ""
+
+
+def test_su_to_row_ready_for_sheet():
+    default = _su_to_row(SUEntry(su_id="SU004", trench="", stage="volumetrics_created"))
+    assert default[SU_READY_SHEET] is False
+    checked = _su_to_row(
+        SUEntry(su_id="SU005", trench="", stage="volumetrics_created", ready_for_sheet=True)
+    )
+    assert checked[SU_READY_SHEET] is True
 
 
 # ─── _rows_to_pgram ──────────────────────────────────────────────────────────
@@ -173,6 +183,17 @@ def test_rows_to_su_stage_volumetrics():
     rows = _su_fake_rows(["SU002", 0, 0, "volumetrics_created", True, False, False, "", "", ""])
     result = _rows_to_su(rows, "17000")
     assert result[0]["stage"] == "volumetrics_created"
+
+
+def test_rows_to_su_ready_for_sheet():
+    # Col K (index 10) TRUE → ready_for_sheet True; absent/short row → False
+    rows = _su_fake_rows(
+        ["SU010", 0, 0, "volumetrics_created", True, False, False, "", "", "", True],
+        ["SU011", 0, 0, "volumetrics_created", True, False, False, "", "", "", False],
+        ["SU012", 0, 0, "volumetrics_created", True, False, False, "", "", ""],  # no col K
+    )
+    result = {r["su_id"]: r["ready_for_sheet"] for r in _rows_to_su(rows, "17000")}
+    assert result == {"SU010": True, "SU011": False, "SU012": False}
 
 
 def test_rows_to_su_skips_empty_id():

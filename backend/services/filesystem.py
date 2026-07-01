@@ -465,6 +465,23 @@ def find_volume_bins_for_su(top_pgram: str, su_id: str = "") -> list[Path]:
     return su_bins or bins
 
 
+def find_post_snip_bin_for_su(su_id: str) -> Optional[Path]:
+    """Find the post-snip debug .bin written by post_snip_script.
+
+    post_snip saves a project bin containing the merged cloud/mesh, top/bottom
+    clouds and the top mesh (raw + trimmed) to Data/SU<su_id>/<su_id>_post_snip.bin.
+    This is the file to open in CloudCompare to debug a finished volume.
+    """
+    cfg = get_config()
+    if not cfg.volume_script_dir:
+        return None
+    su = str(su_id).strip()
+    if not su:
+        return None
+    bin_path = Path(cfg.volume_script_dir) / "Data" / f"SU{su}" / f"{su}_post_snip.bin"
+    return bin_path if bin_path.exists() else None
+
+
 def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
     """Find the final volume OBJ written by post_snip_script.
 
@@ -482,6 +499,25 @@ def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
         / f"Volumetrics_{cfg.season_year}"
         / f"Trench {trench}"
         / f"SU_{su_id}.obj"
+    )
+    return obj if obj.exists() else None
+
+
+def find_top_volume_obj_for_su(su_id: str) -> Optional[Path]:
+    """Find the SU top OBJ written by post_snip_script.
+
+    post_snip saves the top mesh to this season's Volumetrics folder under a shared
+    "SU Top OBJs" subfolder (where the Create-SU-Sheet QGIS script reads it):
+    <base_path>/Volumetrics_<year>/SU Top OBJs/SU_<su_id>_top.obj.
+    """
+    cfg = get_config()
+    if not cfg.base_path:
+        return None
+    obj = (
+        Path(cfg.base_path)
+        / f"Volumetrics_{cfg.season_year}"
+        / "SU Top OBJs"
+        / f"SU_{su_id}_top.obj"
     )
     return obj if obj.exists() else None
 

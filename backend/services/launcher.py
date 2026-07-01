@@ -108,3 +108,30 @@ def open_file_default(file_path: Path) -> dict:
         return {"launched": True}
     except Exception as e:
         return {"launched": False, "error": str(e)}
+
+
+def reveal_in_explorer(file_path: Path) -> dict:
+    """Open the OS file browser with this file highlighted (ready to drag out)."""
+    if not file_path.exists():
+        return {"launched": False, "error": f"File not found: {file_path}"}
+    try:
+        if sys.platform == "win32":
+            # explorer returns exit code 1 even on success, so don't check it.
+            subprocess.Popen(["explorer", f"/select,{file_path}"])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(file_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(file_path.parent)])
+        return {"launched": True}
+    except Exception as e:
+        return {"launched": False, "error": str(e)}
+
+
+def open_url(url: str) -> dict:
+    """Open a URL in the machine's default web browser."""
+    import webbrowser
+    try:
+        webbrowser.open(url)
+        return {"launched": True}
+    except Exception as e:
+        return {"launched": False, "error": str(e)}
