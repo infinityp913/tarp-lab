@@ -87,12 +87,12 @@ SU_TOP_PGRAM = 1
 SU_BOT_PGRAM = 2
 SU_STAGE_COL = 3        # raw stage string — placed before checkbox columns for visibility
 SU_VOL = 4
-SU_SHEET = 5
-SU_AIR = 6
-SU_NOTES = 7
-SU_UPDATED = 8
-SU_SNIP_METHOD_COL = 9  # "auto" when auto-snip advanced this card; "" otherwise
-SU_READY_SHEET = 10     # TRUE when the card is checked ready for SU-sheet creation
+SU_READY_SHEET = 5      # TRUE when the card is checked ready for SU-sheet creation
+SU_SHEET = 6
+SU_AIR = 7
+SU_NOTES = 8
+SU_UPDATED = 9
+SU_SNIP_METHOD_COL = 10  # "auto" when auto-snip advanced this card; "" otherwise
 SU_COLS = 11
 
 # The five trench-specific SU tabs
@@ -295,11 +295,53 @@ def _ensure_sheets() -> tuple[int, dict[str, int]]:
                         for s in meta.get("sheets", [])}
 
         trench_tab_ids = {tab: existing.get(tab, 0) for tab in _SU_TRENCH_TABS}
+        _migrate_su_columns(svc, sid, trench_tab_ids)
         return existing.get(_LAB_PGRAM_SHEET, 0), trench_tab_ids
 
     except Exception as e:
         _log_error(f"_ensure_sheets failed: {e}")
         return 0, {}
+
+
+def _migrate_su_columns(svc, sid: str, trench_tab_ids: dict[str, int]) -> None:
+    """Relocate the 'Ready for SU Sheet' column to SU_READY_SHEET (between Volume
+    Created and SU Sheet Created) if an older layout has it elsewhere.
+
+    Idempotent and data-preserving: moveDimension carries the whole column (values +
+    checkbox validation) with it. Runs before any positional read (via _ensure_sheets
+    at startup / full_sync) so reads never misinterpret a stale physical layout.
+    """
+    requests = []
+    for tab, tab_id in trench_tab_ids.items():
+        if not tab_id:
+            continue
+        header = _read_range(f"{tab}!1:1")
+        if not header or not header[0]:
+            continue
+        try:
+            cur = header[0].index("Ready for SU Sheet")
+        except ValueError:
+            continue  # column not present yet — full_sync will add it in place
+        if cur == SU_READY_SHEET:
+            continue
+        # moveDimension destinationIndex is in pre-move coordinates: moving left
+        # (cur > target) inserts at the target; moving right needs the +1 shift.
+        dest = SU_READY_SHEET if cur > SU_READY_SHEET else SU_READY_SHEET + 1
+        requests.append({
+            "moveDimension": {
+                "source": {"sheetId": tab_id, "dimension": "COLUMNS",
+                           "startIndex": cur, "endIndex": cur + 1},
+                "destinationIndex": dest,
+            }
+        })
+    if not requests:
+        return
+    try:
+        _execute(svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={"requests": requests}))
+        _invalidate_su_cache()
+        logger.info(f"_migrate_su_columns: relocated Ready-for-SU-Sheet column in {len(requests)} tab(s)")
+    except Exception as e:
+        _log_error(f"_migrate_su_columns failed (non-fatal): {e}")
 
 
 def _apply_sheet_style(svc, sid: str, sheet_id: int, num_cols: int, bool_cols: list[int]):
@@ -455,10 +497,9 @@ def _su_header() -> list:
     return [
         "SU ID", "Top Pgram", "Bottom Pgram",
         "Volume Stage",
-        "Volume Created", "SU Sheet Created",
+        "Volume Created", "Ready for SU Sheet", "SU Sheet Created",
         "Uploaded to AIR",
         "Notes", "Last Updated (CET)", "Snip Method",
-        "Ready for SU Sheet",
     ]
 
 
@@ -496,12 +537,12 @@ def _su_to_row(entry: SUEntry) -> list:
         bot,
         entry.stage,
         vol,
+        bool(getattr(entry, "ready_for_sheet", False)),
         sheet,
         air,
         entry.notes,
         cet_now(),
         entry.snip_method,
-        bool(getattr(entry, "ready_for_sheet", False)),
     ]
 
 
@@ -816,9 +857,12 @@ def update_su_stage(su_id: str, stage: str, snip_method: Optional[str] = None):
                 row.append("")
             existing_snip = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
             write_snip = snip_method if snip_method is not None else existing_snip
+            # Ready-for-sheet (col F) sits inside this D:K block, so preserve its
+            # current value — advancing a stage must not toggle the checkbox.
+            existing_ready = _bool(row[SU_READY_SHEET]) if len(row) > SU_READY_SHEET else False
             _write_range(
-                f"{tab}!D{i}:J{i}",
-                [[stage, vol, sheet, air,
+                f"{tab}!D{i}:K{i}",
+                [[stage, vol, existing_ready, sheet, air,
                   row[SU_NOTES] if len(row) > SU_NOTES else "",
                   cet_now(), write_snip]],
             )
@@ -857,16 +901,16 @@ def update_su_notes(su_id: str, notes: str):
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0] == su_id:
-            _write_range(f"{tab}!H{i}:I{i}", [[notes, cet_now()]])
+            _write_range(f"{tab}!I{i}:J{i}", [[notes, cet_now()]])
             _invalidate_su_cache()
             return
     raise ValueError(f"SU {su_id} not found in {tab}")
 
 
 def update_su_ready_for_sheet(su_id: str, ready: bool):
-    """Set the 'Ready for SU Sheet' checkbox (col K) for an SU entry.
+    """Set the 'Ready for SU Sheet' checkbox (col F) for an SU entry.
 
-    Only touches col K so it never disturbs the stage/notes/timestamp columns —
+    Only touches col F so it never disturbs the stage/notes/timestamp columns —
     the Create-SU-Sheet run reads this flag to pick which Volume Created cards to process.
     """
     if not is_available():
@@ -879,7 +923,7 @@ def update_su_ready_for_sheet(su_id: str, ready: bool):
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0] == su_id:
-            _write_range(f"{tab}!K{i}:K{i}", [[bool(ready)]])
+            _write_range(f"{tab}!F{i}:F{i}", [[bool(ready)]])
             _invalidate_su_cache()
             return
     raise ValueError(f"SU {su_id} not found in {tab}")

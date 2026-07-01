@@ -1,6 +1,6 @@
 """Tests for backend/services/gsheets.py — schema, row serialization, cache logic."""
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -157,17 +157,18 @@ def test_rows_to_pgram_stage_derivation():
 
 def _su_fake_rows(*data_rows):
     # No Trench column — trench is injected from the tab name
-    # New layout: ID, Top, Bot, VolumeStage, VolCreated, SheetCreated, Air, Notes, Updated, SnipMethod
+    # Layout: ID, Top, Bot, VolumeStage, VolCreated, ReadyForSheet, SheetCreated,
+    #         Air, Notes, Updated, SnipMethod
     header = ["SU ID", "Top Pgram", "Bottom Pgram",
               "Volume Stage",
-              "Volume Created", "SU Sheet Created",
+              "Volume Created", "Ready for SU Sheet", "SU Sheet Created",
               "Uploaded to AIR", "Notes", "Last Updated (CET)", "Snip Method"]
     return [header] + list(data_rows)
 
 
 def test_rows_to_su_schema():
-    # Stage key at index 3; checkboxes at 4-6
-    rows = _su_fake_rows(["SU001", 696, 697, "not_started", False, False, False, "", "", ""])
+    # Stage key at index 3; checkboxes at 4 (vol), 5 (ready), 6 (sheet), 7 (air)
+    rows = _su_fake_rows(["SU001", 696, 697, "not_started", False, False, False, False, "", "", ""])
     result = _rows_to_su(rows, "16000")  # trench injected from tab name
     assert len(result) == 1
     r = result[0]
@@ -180,25 +181,64 @@ def test_rows_to_su_schema():
 
 def test_rows_to_su_stage_volumetrics():
     # Stage key at index 3 takes precedence
-    rows = _su_fake_rows(["SU002", 0, 0, "volumetrics_created", True, False, False, "", "", ""])
+    rows = _su_fake_rows(["SU002", 0, 0, "volumetrics_created", True, False, False, False, "", "", ""])
     result = _rows_to_su(rows, "17000")
     assert result[0]["stage"] == "volumetrics_created"
 
 
 def test_rows_to_su_ready_for_sheet():
-    # Col K (index 10) TRUE → ready_for_sheet True; absent/short row → False
+    # Col F (index 5) TRUE → ready_for_sheet True; absent/short row → False
     rows = _su_fake_rows(
-        ["SU010", 0, 0, "volumetrics_created", True, False, False, "", "", "", True],
-        ["SU011", 0, 0, "volumetrics_created", True, False, False, "", "", "", False],
-        ["SU012", 0, 0, "volumetrics_created", True, False, False, "", "", ""],  # no col K
+        ["SU010", 0, 0, "volumetrics_created", True, True, False, False, "", "", ""],
+        ["SU011", 0, 0, "volumetrics_created", True, False, False, False, "", "", ""],
+        ["SU012", 0, 0, "volumetrics_created", True],  # short row → ready False
     )
     result = {r["su_id"]: r["ready_for_sheet"] for r in _rows_to_su(rows, "17000")}
     assert result == {"SU010": True, "SU011": False, "SU012": False}
 
 
 def test_rows_to_su_skips_empty_id():
-    rows = _su_fake_rows(["", 0, 0, "not_started", False, False, False, "", "", ""])
+    rows = _su_fake_rows(["", 0, 0, "not_started", False, False, False, False, "", "", ""])
     assert _rows_to_su(rows, "17000") == []
+
+
+# ─── _migrate_su_columns ─────────────────────────────────────────────────────
+
+_OLD_HEADER = [[
+    "SU ID", "Top Pgram", "Bottom Pgram", "Volume Stage",
+    "Volume Created", "SU Sheet Created", "Uploaded to AIR",
+    "Notes", "Last Updated (CET)", "Snip Method", "Ready for SU Sheet",
+]]  # old layout: Ready-for-SU-Sheet at index 10
+
+
+def _run_migrate(header):
+    from backend.services import gsheets
+    svc = MagicMock()
+    with patch.object(gsheets, "_read_range", return_value=header), \
+         patch.object(gsheets, "_execute"), \
+         patch.object(gsheets, "_invalidate_su_cache"):
+        gsheets._migrate_su_columns(svc, "sid", {"Trench 20000": 111})
+    return svc.spreadsheets().batchUpdate
+
+
+def test_migrate_moves_ready_column_to_target():
+    batch = _run_migrate(_OLD_HEADER)
+    body = batch.call_args.kwargs["body"]
+    move = body["requests"][0]["moveDimension"]
+    assert move["source"]["sheetId"] == 111
+    assert (move["source"]["startIndex"], move["source"]["endIndex"]) == (10, 11)
+    assert move["destinationIndex"] == 5  # between Volume Created (4) and SU Sheet Created
+
+
+def test_migrate_noop_when_already_at_target():
+    batch = _run_migrate([_su_header()])  # current layout — already at index 5
+    batch.assert_not_called()
+
+
+def test_migrate_noop_when_column_absent():
+    header = [["SU ID", "Top Pgram", "Bottom Pgram", "Volume Stage", "Volume Created"]]
+    batch = _run_migrate(header)
+    batch.assert_not_called()
 
 
 def test_rows_to_su_pads_short_rows():
