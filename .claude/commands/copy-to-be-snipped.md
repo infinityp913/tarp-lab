@@ -12,12 +12,11 @@ Only cards whose `ready` flag is set (server-computed: both top & bottom pgrams
 processed and a matching LiDAR scan exists) are considered — the same "Ready to
 extract" state shown on the kanban board.
 
-**Order of operations (important):** the deterministic 50% split is taken over the
-*full* ready set first (this machine owns `first-half`), and only *then* are
-already-copied SUs removed from that half. So each run copies "this machine's half
-of all ready SUs, minus the ones already handed out." The split is over the whole
-universe — not the not-yet-copied remainder — so the two machines always partition
-the same set the same way regardless of copy history.
+**Order of operations:** already-copied SUs (from the ledger) are removed first,
+then **50% of the not-yet-copied remainder** is copied (`--portion first-half`).
+Nothing is reserved for another machine — the other half is simply picked up on
+the next run, so over successive runs everything ready gets copied. Pass
+`--portion all` to copy 100% of the remaining not-yet-copied SUs in one go.
 
 The corresponding LiDAR **USDZ scans** from
 `C:\Users\Public\SynologyDrive\tharros_syn_2` are copied into each SU folder too.
@@ -28,9 +27,9 @@ Scans are matched by SU number from the filename (e.g. `tarpf24441-SU_21001.usdz
 **SUs already copied in past runs are skipped**, so an operator is never handed
 the same SU twice. The script keeps a ledger at
 `.claude/scripts/copied_sus.json` (a JSON list of su_ids); each run excludes any
-SU already in it *before* taking the first-half slice, then records the SUs it
-just copied. Use `--no-ledger` to ignore it for one run, or `--reset-ledger` to
-start tracking from scratch.
+SU already in it *before* taking the 50% slice, then records the SUs it just
+copied. Use `--no-ledger` to ignore it for one run, or `--reset-ledger` to start
+tracking from scratch.
 
 The list of "to be snipped" SUs is read live from the dashboard API, so it always
 matches the kanban board. The backend must be running.
@@ -47,12 +46,13 @@ matches the kanban board. The backend must be running.
 
 2. (Optional) Preview first with `--dry-run` if the user wants to check before copying.
 
-3. Run the copy (only the first 50% of the SUs):
+3. Run the copy (50% of the not-yet-copied SUs):
    ```bash
    python "C:/Users/Photogrammetry/Desktop/tarp-lab/.claude/scripts/copy_to_be_snipped.py" --dest "<DRIVE>:\\" --portion first-half
    ```
-   (e.g. `--dest "D:\\"` for the Seagate 5TB drive.)
+   (e.g. `--dest "D:\\"` for the Seagate 5TB drive.) Use `--portion all` instead to
+   copy 100% of the remaining not-yet-copied SUs in one run.
 
-4. Report the summary the script prints: how many SU folders were copied (this is
-   half of the total in 'To Be Snipped'), how many USDZ LiDAR scans were copied in,
-   the destination path, and any SUs that had no source folder or no USDZ scan.
+4. Report the summary the script prints: how many SU folders were copied (half of
+   the not-yet-copied ready SUs), how many USDZ LiDAR scans were copied in, the
+   destination path, and any SUs that had no source folder or no USDZ scan.

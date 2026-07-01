@@ -120,9 +120,9 @@ def main() -> int:
         choices=["all", "first-half", "second-half"],
         default="all",
         help=(
-            "Which slice of the (sorted) to_be_snipped SUs to copy. "
-            "Use 'first-half' for the drive and 'second-half' for the SUs being "
-            "snipped on this machine (the split is deterministic). Default: all."
+            "How much of the not-yet-copied ready SUs to copy this run: "
+            "'first-half' copies 50%% now and leaves the rest for the next run, "
+            "'all' copies everything remaining. Default: all."
         ),
     )
     parser.add_argument(
@@ -179,31 +179,32 @@ def main() -> int:
     ledger_path = Path(args.ledger)
     already = set() if (args.no_ledger or args.reset_ledger) else load_ledger(ledger_path)
 
-    # Deterministic 50% split over the FULL ready set first, so the two machines
-    # always partition the same universe the same way regardless of what has been
-    # copied already. Each machine owns a fixed half.
-    ordered = sorted(all_su_ids)
-    mid = (len(ordered) + 1) // 2  # first-half gets the larger slice on odd counts
-    if args.portion == "first-half":
-        portion, other = ordered[:mid], ordered[mid:]
-    elif args.portion == "second-half":
-        portion, other = ordered[mid:], ordered[:mid]
-    else:
-        portion, other = ordered, []
+    # Work only with SUs not yet copied in a past run.
+    candidates = sorted(s for s in all_su_ids if s not in already)
+    skipped_prev = sorted(s for s in all_su_ids if s in already)
+    if not candidates:
+        print(f"All {len(all_su_ids)} ready SU(s) have already been copied in past runs. Nothing new to copy.")
+        return 0
 
-    # Then drop SUs already handed out in past runs from this machine's half.
-    su_ids = [s for s in portion if s not in already]
-    skipped_prev = [s for s in portion if s in already]
+    # Copy a portion of the not-yet-copied SUs. 'first-half' takes 50% now and
+    # leaves the rest for the next run (nothing is reserved for another machine);
+    # 'all' copies everything remaining.
+    mid = (len(candidates) + 1) // 2  # first-half gets the larger slice on odd counts
+    if args.portion == "first-half":
+        su_ids, remainder = candidates[:mid], candidates[mid:]
+    elif args.portion == "second-half":
+        su_ids, remainder = candidates[mid:], candidates[:mid]
+    else:  # all
+        su_ids, remainder = candidates, []
 
     print(f"{len(all_su_ids)} ready-to-extract SU(s) in 'To Be Snipped'; "
-          f"portion='{args.portion}' owns {len(portion)}, {len(su_ids)} new to copy.")
+          f"{len(candidates)} not yet copied; copying portion='{args.portion}' ({len(su_ids)}).")
     if skipped_prev:
-        print(f"  (skipping {len(skipped_prev)} already copied in past runs: "
-              f"{', '.join('SU' + s for s in skipped_prev)})")
-    if other:
-        print(f"  (other half, NOT this machine's: {', '.join('SU' + s for s in other)})")
+        print(f"  ({len(skipped_prev)} already copied in past runs, skipped)")
+    if remainder:
+        print(f"  (remaining for a later run: {', '.join('SU' + s for s in remainder)})")
     if not su_ids:
-        print("Every SU in this half has already been copied. Nothing new to copy.")
+        print("Nothing to copy for this portion.")
         return 0
     print(f"Source: {data_dir}")
     print(f"Dest:   {dest_root}")
