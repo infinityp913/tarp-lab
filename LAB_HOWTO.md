@@ -81,7 +81,7 @@ scripts:
   pre_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\pre_snip_script.py"
   auto_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\auto_snip_script.py"
   post_snip: "C:\\Users\\Photogrammetry\\cloudcomparescript\\post_snip_script.py"
-  create_su_sheet: "C:\\Users\\Photogrammetry\\AutomateRockMasks\\generate_su_sheets.py"
+  create_su_sheet: "C:\\Users\\Photogrammetry\\AutomateSuSheetCreation\\generate_su_sheets.py"
   volume_script_dir: "C:\\Users\\Photogrammetry\\cloudcomparescript"
   cloudcompy_python: "C:\\Users\\Photogrammetry\\miniconda3\\envs\\CloudComPy310\\python.exe"
 ```
