@@ -7,7 +7,7 @@ import logging
 import re
 from pathlib import Path
 
-from backend.models import SUEntry, cet_now, expand_su_range, trench_from_su_id
+from backend.models import PGRAM_STAGES, SUEntry, cet_now, expand_su_range, trench_from_su_id
 from backend.services import gsheets
 from backend.services.filesystem import scan_filesystem, scan_ply_files
 
@@ -127,6 +127,83 @@ def _pgram_to_su_string() -> dict[str, str]:
     return result
 
 
+def processed_pgram_nums() -> set[int]:
+    """Pgram numbers whose job folder currently sits in 'processed' (or beyond).
+
+    The authoritative signal is the filesystem STAGE folder — not PLY presence.
+    A PLY lives in a separate PLY/ directory and survives a job being moved back
+    out of processed, so it can't tell us the job left the stage. We treat
+    'processed' and the later 'uploaded_air' as still-processed so a job that
+    advanced past processed doesn't get its cards deleted.
+    """
+    order = {s: i for i, s in enumerate(PGRAM_STAGES)}
+    processed_idx = order["processed"]
+    return {
+        job.numeric_id
+        for job in scan_filesystem()
+        if order.get(job.stage, -1) >= processed_idx
+    }
+
+
+def deprovision_orphaned_cards() -> dict:
+    """Remove/repair volume cards whose backing pgram left the 'processed' stage.
+
+    'Processed' is determined by the pgram's job folder location on disk (see
+    `processed_pgram_nums`), so moving a folder out of the processed stage — even
+    without deleting its PLY — orphans any card built on it:
+      - top_pgram no longer processed → the card can't produce a volume → delete it
+      - bot_pgram no longer processed → clear the bottom (the card falls back to
+        'not ready' until a new bottom is assigned)
+
+    Returns {"removed": [...], "cleared": [...]}.
+    """
+    jobs = scan_filesystem()
+    # Safety: a completely empty scan almost always means the base path is
+    # unreachable, not that every job vanished. Never mass-delete on a blank scan.
+    if not jobs:
+        logger.warning("deprovision_orphaned_cards: filesystem scan empty — skipping (drive offline?)")
+        return {"removed": [], "cleared": []}
+
+    order = {s: i for i, s in enumerate(PGRAM_STAGES)}
+    processed_idx = order["processed"]
+    processed_nums = {
+        job.numeric_id for job in jobs if order.get(job.stage, -1) >= processed_idx
+    }
+
+    removed: list[dict] = []
+    cleared: list[dict] = []
+
+    for row in gsheets.get_su_rows():
+        su_id = str(row.get("su_id", "")).strip()
+        top = str(row.get("top_pgram", "")).strip()
+        bot = str(row.get("bot_pgram", "")).strip()
+
+        # Top pgram gone → the whole card is orphaned; remove it.
+        if top.isdigit() and int(top) not in processed_nums:
+            try:
+                if gsheets.delete_su(su_id, row.get("trench", "")):
+                    removed.append({"su_id": su_id, "top_pgram": top})
+            except Exception as e:
+                logger.warning(f"deprovision_orphaned_cards: failed to delete SU {su_id}: {e}")
+            continue  # card is gone — nothing left to reconcile for it
+
+        # Bottom pgram gone → clear just the bottom, keep the card.
+        if bot.isdigit() and int(bot) not in processed_nums:
+            try:
+                gsheets.update_su_pgrams(su_id, top, "")
+                cleared.append({"su_id": su_id, "bot_pgram": bot})
+            except Exception as e:
+                logger.warning(f"deprovision_orphaned_cards: failed to clear bottom for SU {su_id}: {e}")
+
+    if removed or cleared:
+        logger.info(
+            f"deprovision_orphaned_cards: removed {len(removed)} card(s), "
+            f"cleared bottom on {len(cleared)}"
+        )
+
+    return {"removed": removed, "cleared": cleared}
+
+
 def provision_from_ply() -> dict:
     """Scan {overnight_output_assets_root}/PLY/ and create volume cards for new SUs.
 
@@ -144,6 +221,12 @@ def provision_from_ply() -> dict:
     ply_files = scan_ply_files()
     if not ply_files:
         return {"created": [], "skipped": [], "ply_count": 0}
+
+    # A PLY lingers in the PLY/ folder after its job is moved back out of the
+    # processed stage. Provision only from pgrams whose job folder is still in
+    # processed (or beyond), so a stale PLY can't resurrect a card that
+    # deprovision just removed.
+    processed_nums = processed_pgram_nums()
 
     existing_su_ids: set[str] = {row["su_id"] for row in gsheets.get_su_rows()}
     field_map = gsheets.get_field_pgram_map()
@@ -166,6 +249,9 @@ def provision_from_ply() -> dict:
     for ply in ply_files:
         pgram_num = ply["pgram_num"]
         pgram_str = str(pgram_num)
+        if pgram_num not in processed_nums:
+            skipped.append({"pgram": pgram_num, "reason": "job folder not in processed stage"})
+            continue
         # The job folder name uses "_" to separate multiple SUs (SU22003_22090_…);
         # normalise to commas so expand_su_range splits them.
         folder_sus = pgram_su_strings.get(pgram_str, "").replace("_", ",")

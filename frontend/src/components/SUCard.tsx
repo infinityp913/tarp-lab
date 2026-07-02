@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
 import {
   openPly, openBothPly, updatePgrams,
-  openBins, openPostSnipBin, openVolume, openTopVolume, openDebugImage, openLidar, startVolumeRun,
+  openBins, openPostSnipBin, openVolume, openTopVolume, openSuSheet, openDebugImage, openLidar, startVolumeRun,
   updateReadyForSheet,
 } from '../api/su'
 import { toast } from './Toast'
@@ -298,6 +298,17 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
             onClick={(e) => handleAction(e, 'topvolume', () => openTopVolume(entry.su_id))}
           >
             {actionLoading === 'topvolume' ? '…' : 'Top Volume ↗'}
+          </button>
+        )}
+
+        {stage === 'su_sheet_created' && (
+          <button
+            style={{ ...actionBtn, borderColor: '#22c55e66', color: '#4ade80' }}
+            disabled={busy}
+            title="Open the generated SU sheet PDF"
+            onClick={(e) => handleAction(e, 'susheet', () => openSuSheet(entry.su_id))}
+          >
+            {actionLoading === 'susheet' ? '…' : 'SU Sheet ↗'}
           </button>
         )}
       </div>

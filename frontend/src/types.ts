@@ -56,6 +56,7 @@ export interface VolumeRunStatus {
   status: 'idle' | 'running' | 'done' | 'failed'
   error: string | null
   cards_advanced: number
+  skipped: number
   processed: number
   total: number
   step_label: string | null

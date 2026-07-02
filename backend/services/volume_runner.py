@@ -15,6 +15,7 @@ from typing import Optional
 
 from backend.config import LOG_PATH, get_config
 from backend.services import gsheets
+from backend.services.filesystem import find_su_sheet_pdf_for_su
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ _state: dict = {
     "status": "idle",   # idle | running | done | failed
     "error": None,
     "cards_advanced": 0,
+    "skipped": 0,       # cards NOT advanced because their expected output was missing
     "processed": 0,     # SUs finished so far (from the script's progress.json)
     "total": 0,         # SUs to process this run (0 = unknown yet → indeterminate)
     "step_label": None,  # chain runs: which step is running, e.g. "Post-Snip (3/4)"
@@ -277,6 +279,7 @@ def start_run(kind: str, su_id: Optional[str] = None) -> dict:
         _state["status"] = "running"
         _state["error"] = None
         _state["cards_advanced"] = 0
+        _state["skipped"] = 0
         _state["processed"] = 0
         _state["total"] = 0
         _state["step_label"] = None
@@ -352,30 +355,44 @@ def _worker(kind: str, cards: list[dict]) -> None:
         _finish(False, detail[-800:] if detail else f"Script exited with code {proc.returncode}", 0)
         return
 
-    # Script succeeded — advance all cards from from_stage → to_stage in Sheets
+    # Script succeeded — advance cards from from_stage → to_stage in Sheets.
     # auto_snip sets snip_method="auto" so the debug image button appears;
     # pre_snip/post_snip clear it (no debug image produced by those scripts).
+    #
+    # create_su_sheet's QGIS script catches per-SU errors internally and still exits 0
+    # (e.g. a missing ortho for one SU), so a zero return code does NOT mean every sheet
+    # was produced. Only advance cards whose PDF actually landed on disk; leave the rest
+    # in Volume Created so the failure is visible and the run can be retried.
     snip = "auto" if kind == "auto_snip" else ""
     advanced = 0
+    skipped: list[str] = []
     for card in cards:
         su_id = card["su_id"]
+        if kind == "create_su_sheet" and not find_su_sheet_pdf_for_su(su_id):
+            skipped.append(str(su_id))
+            continue
         try:
             gsheets.update_su_stage(su_id, to_stage, snip_method=snip)
             advanced += 1
         except Exception as e:
             _log(f"advance {su_id} to {to_stage} failed: {e}")
 
-    _finish(True, None, advanced)
-    _log(f"finished '{kind}': advanced {advanced}/{len(cards)} card(s)")
+    if skipped:
+        _log(f"  {len(skipped)} card(s) left in '{from_stage}' — no output produced: {', '.join(skipped)}")
+
+    _finish(True, None, advanced, len(skipped))
+    _log(f"finished '{kind}': advanced {advanced}/{len(cards)} card(s)"
+         + (f", {len(skipped)} skipped" if skipped else ""))
 
 
-def _finish(ok: bool, error: Optional[str], advanced: int) -> None:
+def _finish(ok: bool, error: Optional[str], advanced: int, skipped: int = 0) -> None:
     global _progress_path
     with _lock:
         _state["active"] = False
         _state["status"] = "done" if ok else "failed"
         _state["error"] = error
         _state["cards_advanced"] = advanced
+        _state["skipped"] = skipped
         _state["step_label"] = None
         if ok and _state["total"]:
             _state["processed"] = _state["total"]

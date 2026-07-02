@@ -20,6 +20,7 @@ from backend.services.filesystem import (
     find_post_snip_bin_for_su,
     find_volume_obj_for_su,
     find_top_volume_obj_for_su,
+    find_su_sheet_pdf_for_su,
     find_debug_image_for_su,
 )
 from backend.services.launcher import (
@@ -32,6 +33,7 @@ from backend.services.launcher import (
 )
 from backend.services.volume import annotate_readiness, find_usdz_for_su
 from backend.services.volume import provision_from_ply as _provision_from_ply
+from backend.services.volume import deprovision_orphaned_cards as _deprovision_orphaned_cards
 from backend.services import volume_runner
 
 router = APIRouter(prefix="/api/su", tags=["su"])
@@ -62,8 +64,14 @@ def create_entry(req: CreateSUEntryRequest):
 
 @router.post("/provision-from-ply")
 def provision_from_ply():
-    """Scan PLY directory and auto-create volume cards for SUs without one."""
-    return _provision_from_ply()
+    """Reconcile volume cards against the PLY directory.
+
+    First removes cards whose backing pgram left 'processed' (its PLY is gone),
+    then auto-creates cards for SUs whose pgram is newly processed.
+    """
+    deprovisioned = _deprovision_orphaned_cards()
+    result = _provision_from_ply()
+    return {**result, **deprovisioned}
 
 
 def _resolve_su_ply(su_id: str, pgram_type: str):
@@ -176,6 +184,21 @@ def open_top_volume(su_id: str):
     result = open_file_default(obj)
     if not result.get("launched"):
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to open top volume"))
+    return result
+
+
+@router.post("/entries/{su_id}/open-su-sheet")
+def open_su_sheet(su_id: str):
+    """Open the SU sheet PDF in the default application (available after Create SU Sheet runs)."""
+    pdf = find_su_sheet_pdf_for_su(su_id)
+    if not pdf:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No SU sheet PDF found for SU {su_id}. Run Create SU Sheet first.",
+        )
+    result = open_file_default(pdf)
+    if not result.get("launched"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to open SU sheet"))
     return result
 
 

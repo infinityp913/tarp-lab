@@ -81,7 +81,7 @@ def test_skips_su_already_in_sheet(patch_sources):
 def test_skips_pgram_with_no_su_source(patch_sources):
     upserted = patch_sources(
         ply_files=[{"pgram_num": 999, "filename": "Pgram_Job_999.ply", "path": "x"}],
-        jobs=[],
+        jobs=[_job("999", "")],  # in processed, but no SU string to draw from
         su_rows=[],
         field_map={},
     )
@@ -90,6 +90,22 @@ def test_skips_pgram_with_no_su_source(patch_sources):
 
     assert upserted == []
     assert result["skipped"][0]["reason"] == "no SUs in job folder or field tracking"
+
+
+def test_skips_pgram_whose_folder_left_processed(patch_sources):
+    """A lingering PLY whose job folder is no longer in processed must not create cards."""
+    upserted = patch_sources(
+        ply_files=[{"pgram_num": 811, "filename": "Pgram_Job_811.ply", "path": "x"}],
+        jobs=[_job("811", "SU20001", stage="to_overnight")],  # moved back out of processed
+        su_rows=[],
+        field_map={},
+    )
+
+    result = volume.provision_from_ply()
+
+    assert upserted == []
+    assert result["created"] == []
+    assert result["skipped"][0]["reason"] == "job folder not in processed stage"
 
 
 def test_annotate_readiness(monkeypatch):
@@ -147,3 +163,84 @@ def test_field_and_folder_sources_union(patch_sources):
     volume.provision_from_ply()
 
     assert sorted(e.su_id for e in upserted) == ["20001", "20002"]
+
+
+@pytest.fixture
+def patch_deprovision(monkeypatch):
+    """Patch the sources deprovision_orphaned_cards reads, capturing sheet mutations.
+
+    `processed` is the list of pgram numbers whose job folder is in the processed
+    stage on disk; each becomes a scan_filesystem() job at stage 'processed'.
+    """
+    def setup(*, processed, su_rows, scan_empty=False):
+        deleted = []
+        cleared = []
+        jobs = [] if scan_empty else [_job(str(n), "") for n in processed]
+        monkeypatch.setattr(volume, "scan_filesystem", lambda: jobs)
+        monkeypatch.setattr(volume.gsheets, "get_su_rows", lambda: su_rows)
+        monkeypatch.setattr(
+            volume.gsheets, "delete_su",
+            lambda su_id, trench="": deleted.append(su_id) or True,
+        )
+        monkeypatch.setattr(
+            volume.gsheets, "update_su_pgrams",
+            lambda su_id, top, bot: cleared.append((su_id, top, bot)),
+        )
+        return deleted, cleared
+
+    return setup
+
+
+def test_deprovision_removes_card_when_top_pgram_left_processed(patch_deprovision):
+    """A card whose top pgram folder left 'processed' is deleted entirely."""
+    deleted, cleared = patch_deprovision(
+        processed=[700],  # 811 was moved out of processed
+        su_rows=[{"su_id": "20001", "top_pgram": "811", "bot_pgram": "700", "trench": "20000"}],
+    )
+
+    result = volume.deprovision_orphaned_cards()
+
+    assert deleted == ["20001"]
+    assert cleared == []  # top-gone short-circuits before the bottom check
+    assert result["removed"] == [{"su_id": "20001", "top_pgram": "811"}]
+
+
+def test_deprovision_clears_bottom_when_bot_pgram_left_processed(patch_deprovision):
+    """A card whose bottom pgram folder left 'processed' keeps the card but clears the bottom."""
+    deleted, cleared = patch_deprovision(
+        processed=[700],  # 811 was moved out of processed
+        su_rows=[{"su_id": "20001", "top_pgram": "700", "bot_pgram": "811", "trench": "20000"}],
+    )
+
+    result = volume.deprovision_orphaned_cards()
+
+    assert deleted == []
+    assert cleared == [("20001", "700", "")]
+    assert result["cleared"] == [{"su_id": "20001", "bot_pgram": "811"}]
+
+
+def test_deprovision_leaves_healthy_cards_untouched(patch_deprovision):
+    """Cards whose top and bottom folders are still in processed are not modified."""
+    deleted, cleared = patch_deprovision(
+        processed=[700, 811],
+        su_rows=[{"su_id": "20001", "top_pgram": "700", "bot_pgram": "811", "trench": "20000"}],
+    )
+
+    result = volume.deprovision_orphaned_cards()
+
+    assert deleted == [] and cleared == []
+    assert result == {"removed": [], "cleared": []}
+
+
+def test_deprovision_skips_when_scan_empty(patch_deprovision):
+    """A blank filesystem scan (drive offline) must never mass-delete cards."""
+    deleted, cleared = patch_deprovision(
+        processed=[],
+        su_rows=[{"su_id": "20001", "top_pgram": "700", "bot_pgram": "811", "trench": "20000"}],
+        scan_empty=True,
+    )
+
+    result = volume.deprovision_orphaned_cards()
+
+    assert deleted == [] and cleared == []
+    assert result == {"removed": [], "cleared": []}

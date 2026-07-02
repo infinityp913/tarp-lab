@@ -522,6 +522,24 @@ def find_top_volume_obj_for_su(su_id: str) -> Optional[Path]:
     return obj if obj.exists() else None
 
 
+def find_su_sheet_pdf_for_su(su_id: str) -> Optional[Path]:
+    """Find the SU sheet PDF written by generate_su_sheets.py (Create SU Sheet run).
+
+    The QGIS script writes it to this season's Volumetrics folder as
+    <base_path>/Volumetrics_<year>/SU_<su_id>.pdf (the su value is prefixed with
+    "SU_", matching _write_su_sheets_input()).
+    """
+    cfg = get_config()
+    if not cfg.base_path:
+        return None
+    pdf = (
+        Path(cfg.base_path)
+        / f"Volumetrics_{cfg.season_year}"
+        / f"SU_{su_id}.pdf"
+    )
+    return pdf if pdf.exists() else None
+
+
 def find_debug_image_for_su(su_id: str, top_pgram: str) -> Optional[Path]:
     """Find the debug image written by auto_snip_script.
 

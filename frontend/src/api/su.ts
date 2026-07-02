@@ -81,6 +81,8 @@ export async function provisionFromPly(): Promise<{
   created: object[]
   skipped: { su_id?: string; pgram?: number; reason: string }[]
   ply_count: number
+  removed: { su_id: string; top_pgram: string }[]
+  cleared: { su_id: string; bot_pgram: string }[]
 }> {
   const res = await fetch('/api/su/provision-from-ply', { method: 'POST' })
   if (!res.ok) {
@@ -132,6 +134,14 @@ export async function openVolume(suId: string): Promise<void> {
 
 export async function openTopVolume(suId: string): Promise<void> {
   const res = await fetch(`/api/su/entries/${suId}/open-top-volume`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function openSuSheet(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-su-sheet`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)

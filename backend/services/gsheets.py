@@ -890,6 +890,55 @@ def update_su_pgrams(su_id: str, top_pgram: str, bot_pgram: str):
     raise ValueError(f"SU {su_id} not found in {tab}")
 
 
+def delete_su(su_id: str, trench: str = "") -> bool:
+    """Delete an SU row from its trench tab. Returns True if a row was removed.
+
+    Physically removes the row (deleteDimension) rather than blanking it, so no
+    empty gap is left behind in the tab.
+    """
+    if not is_available():
+        raise RuntimeError("Google Sheets is unavailable")
+    tab = _su_tab_for(su_id, trench)
+    if not tab:
+        raise ValueError(f"Cannot determine trench tab for SU {su_id}")
+    svc = _get_service()
+    if svc is None:
+        raise RuntimeError("Google Sheets is unavailable")
+    sid = get_config().gsheets_spreadsheet_id
+
+    sheet_id = None
+    try:
+        meta = _execute(svc.spreadsheets().get(spreadsheetId=sid))
+    except Exception as e:
+        _log_error(f"delete_su({su_id}) meta read failed: {e}")
+        raise
+    for s in meta.get("sheets", []):
+        if s["properties"]["title"] == tab:
+            sheet_id = s["properties"]["sheetId"]
+            break
+    if sheet_id is None:
+        raise ValueError(f"Tab {tab} not found")
+
+    rows = _read_range(f"{tab}!A:K")
+    if rows is None:
+        raise RuntimeError("Google Sheets read failed during delete_su")
+    # enumerate from 1 so `i` is the 0-based sheet row index (header is row 0).
+    for i, row in enumerate(rows[1:], start=1):
+        if row and row[0] == su_id:
+            _execute(svc.spreadsheets().batchUpdate(
+                spreadsheetId=sid,
+                body={"requests": [{
+                    "deleteDimension": {
+                        "range": {"sheetId": sheet_id, "dimension": "ROWS",
+                                  "startIndex": i, "endIndex": i + 1},
+                    }
+                }]},
+            ))
+            _invalidate_su_cache()
+            return True
+    return False
+
+
 def update_su_notes(su_id: str, notes: str):
     if not is_available():
         raise RuntimeError("Google Sheets is unavailable")
