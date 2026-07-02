@@ -4,12 +4,19 @@ Called by the SU router (manual "Scan PLY" button) and the pgram router
 (auto-triggered when a job lands in "processed" stage).
 """
 import logging
+import re
+from pathlib import Path
 
-from backend.models import SUEntry, cet_now, expand_su_range, trench_from_su_id
+from backend.models import PGRAM_STAGES, SUEntry, cet_now, expand_su_range, trench_from_su_id
 from backend.services import gsheets
 from backend.services.filesystem import scan_filesystem, scan_ply_files
 
 logger = logging.getLogger(__name__)
+
+# LiDAR USDZ scans live here, named like "tarpf24441-SU_21001.usdz". A single
+# file may cover several SUs, e.g. "...-SU_22018_22019_22021.usdz".
+USDZ_DIR = Path(r"C:\Users\Public\SynologyDrive\tharros_syn_2")
+_USDZ_SU_RE = re.compile(r"-SU_([0-9_]+)\.usdz$", re.IGNORECASE)
 
 
 def ready_pgram_nums() -> set[int]:
@@ -21,25 +28,85 @@ def ready_pgram_nums() -> set[int]:
     return {ply["pgram_num"] for ply in scan_ply_files()}
 
 
-def is_su_ready(top_pgram: str, bot_pgram: str, ready_nums: set[int]) -> bool:
+def usdz_su_nums() -> set[str]:
+    """SU numbers (as strings) that have a matching LiDAR USDZ scan on disk.
+
+    If the folder is unreachable (e.g. the Synology drive is offline), returns
+    an empty set so the SUs count as having no scan and are gated out of
+    readiness — a missing drive must not silently pass the LiDAR check.
+    """
+    nums: set[str] = set()
+    try:
+        if not USDZ_DIR.is_dir():
+            logger.warning(f"usdz_su_nums: scan folder not reachable: {USDZ_DIR}")
+            return nums
+        for f in USDZ_DIR.glob("*.usdz"):
+            m = _USDZ_SU_RE.search(f.name)
+            if m:
+                nums.update(m.group(1).split("_"))
+    except OSError as e:
+        logger.warning(f"usdz_su_nums: could not read {USDZ_DIR}: {e}")
+    return nums
+
+
+def find_usdz_for_su(su_id: str) -> list[Path]:
+    """LiDAR USDZ scan file(s) whose name includes this SU number.
+
+    One file may cover several SUs, so any file listing this SU number matches.
+    Returns an empty list if none match or the folder is unreachable.
+    """
+    su = str(su_id).strip()
+    matches: list[Path] = []
+    try:
+        if not USDZ_DIR.is_dir():
+            logger.warning(f"find_usdz_for_su: scan folder not reachable: {USDZ_DIR}")
+            return matches
+        for f in sorted(USDZ_DIR.glob("*.usdz")):
+            m = _USDZ_SU_RE.search(f.name)
+            if m and su in m.group(1).split("_"):
+                matches.append(f)
+    except OSError as e:
+        logger.warning(f"find_usdz_for_su: could not read {USDZ_DIR}: {e}")
+    return matches
+
+
+def is_su_ready(
+    top_pgram: str,
+    bot_pgram: str,
+    su_id: str,
+    ready_nums: set[int],
+    usdz_nums: set[str],
+) -> bool:
     """Whether a volume card is ready for its volume to be extracted.
 
     Ready means BOTH the top and bottom pgrams are known and processed
-    (their PLY files exist). Only ready cards can have the create-volumes
-    script run on them and be dragged to 'Volume Created'.
+    (their PLY files exist) AND the SU has a matching LiDAR USDZ scan on disk.
+    Only ready cards can be moved from 'Not Started' into the pre-snip pipeline.
     """
     def known_and_processed(val: str) -> bool:
         val = str(val).strip()
         return val.isdigit() and int(val) in ready_nums
 
-    return known_and_processed(top_pgram) and known_and_processed(bot_pgram)
+    has_lidar = str(su_id).strip() in usdz_nums
+    return known_and_processed(top_pgram) and known_and_processed(bot_pgram) and has_lidar
 
 
 def annotate_readiness(rows: list[dict]) -> list[dict]:
-    """Return copies of SU rows each tagged with a computed `ready` boolean."""
+    """Return copies of SU rows each tagged with computed `ready` and `has_lidar` booleans."""
     ready_nums = ready_pgram_nums()
+    usdz_nums = usdz_su_nums()
     return [
-        {**row, "ready": is_su_ready(row.get("top_pgram", ""), row.get("bot_pgram", ""), ready_nums)}
+        {
+            **row,
+            "ready": is_su_ready(
+                row.get("top_pgram", ""),
+                row.get("bot_pgram", ""),
+                row.get("su_id", ""),
+                ready_nums,
+                usdz_nums,
+            ),
+            "has_lidar": str(row.get("su_id", "")).strip() in usdz_nums,
+        }
         for row in rows
     ]
 
@@ -60,6 +127,83 @@ def _pgram_to_su_string() -> dict[str, str]:
     return result
 
 
+def processed_pgram_nums() -> set[int]:
+    """Pgram numbers whose job folder currently sits in 'processed' (or beyond).
+
+    The authoritative signal is the filesystem STAGE folder — not PLY presence.
+    A PLY lives in a separate PLY/ directory and survives a job being moved back
+    out of processed, so it can't tell us the job left the stage. We treat
+    'processed' and the later 'uploaded_air' as still-processed so a job that
+    advanced past processed doesn't get its cards deleted.
+    """
+    order = {s: i for i, s in enumerate(PGRAM_STAGES)}
+    processed_idx = order["processed"]
+    return {
+        job.numeric_id
+        for job in scan_filesystem()
+        if order.get(job.stage, -1) >= processed_idx
+    }
+
+
+def deprovision_orphaned_cards() -> dict:
+    """Remove/repair volume cards whose backing pgram left the 'processed' stage.
+
+    'Processed' is determined by the pgram's job folder location on disk (see
+    `processed_pgram_nums`), so moving a folder out of the processed stage — even
+    without deleting its PLY — orphans any card built on it:
+      - top_pgram no longer processed → the card can't produce a volume → delete it
+      - bot_pgram no longer processed → clear the bottom (the card falls back to
+        'not ready' until a new bottom is assigned)
+
+    Returns {"removed": [...], "cleared": [...]}.
+    """
+    jobs = scan_filesystem()
+    # Safety: a completely empty scan almost always means the base path is
+    # unreachable, not that every job vanished. Never mass-delete on a blank scan.
+    if not jobs:
+        logger.warning("deprovision_orphaned_cards: filesystem scan empty — skipping (drive offline?)")
+        return {"removed": [], "cleared": []}
+
+    order = {s: i for i, s in enumerate(PGRAM_STAGES)}
+    processed_idx = order["processed"]
+    processed_nums = {
+        job.numeric_id for job in jobs if order.get(job.stage, -1) >= processed_idx
+    }
+
+    removed: list[dict] = []
+    cleared: list[dict] = []
+
+    for row in gsheets.get_su_rows():
+        su_id = str(row.get("su_id", "")).strip()
+        top = str(row.get("top_pgram", "")).strip()
+        bot = str(row.get("bot_pgram", "")).strip()
+
+        # Top pgram gone → the whole card is orphaned; remove it.
+        if top.isdigit() and int(top) not in processed_nums:
+            try:
+                if gsheets.delete_su(su_id, row.get("trench", "")):
+                    removed.append({"su_id": su_id, "top_pgram": top})
+            except Exception as e:
+                logger.warning(f"deprovision_orphaned_cards: failed to delete SU {su_id}: {e}")
+            continue  # card is gone — nothing left to reconcile for it
+
+        # Bottom pgram gone → clear just the bottom, keep the card.
+        if bot.isdigit() and int(bot) not in processed_nums:
+            try:
+                gsheets.update_su_pgrams(su_id, top, "")
+                cleared.append({"su_id": su_id, "bot_pgram": bot})
+            except Exception as e:
+                logger.warning(f"deprovision_orphaned_cards: failed to clear bottom for SU {su_id}: {e}")
+
+    if removed or cleared:
+        logger.info(
+            f"deprovision_orphaned_cards: removed {len(removed)} card(s), "
+            f"cleared bottom on {len(cleared)}"
+        )
+
+    return {"removed": removed, "cleared": cleared}
+
+
 def provision_from_ply() -> dict:
     """Scan {overnight_output_assets_root}/PLY/ and create volume cards for new SUs.
 
@@ -77,6 +221,12 @@ def provision_from_ply() -> dict:
     ply_files = scan_ply_files()
     if not ply_files:
         return {"created": [], "skipped": [], "ply_count": 0}
+
+    # A PLY lingers in the PLY/ folder after its job is moved back out of the
+    # processed stage. Provision only from pgrams whose job folder is still in
+    # processed (or beyond), so a stale PLY can't resurrect a card that
+    # deprovision just removed.
+    processed_nums = processed_pgram_nums()
 
     existing_su_ids: set[str] = {row["su_id"] for row in gsheets.get_su_rows()}
     field_map = gsheets.get_field_pgram_map()
@@ -99,6 +249,9 @@ def provision_from_ply() -> dict:
     for ply in ply_files:
         pgram_num = ply["pgram_num"]
         pgram_str = str(pgram_num)
+        if pgram_num not in processed_nums:
+            skipped.append({"pgram": pgram_num, "reason": "job folder not in processed stage"})
+            continue
         # The job folder name uses "_" to separate multiple SUs (SU22003_22090_…);
         # normalise to commas so expand_su_range splits them.
         folder_sus = pgram_su_strings.get(pgram_str, "").replace("_", ",")

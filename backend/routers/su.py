@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
@@ -7,6 +9,7 @@ from backend.models import (
     StageTransitionRequest,
     TRANSITION_DIALOGS,
     UpdateNotesRequest,
+    UpdateReadyForSheetRequest,
     UpdateSUPgramsRequest,
     cet_now,
 )
@@ -14,7 +17,10 @@ from backend.services import gsheets
 from backend.services.filesystem import (
     find_ply_for_pgram,
     find_volume_bins_for_su,
+    find_post_snip_bin_for_su,
     find_volume_obj_for_su,
+    find_top_volume_obj_for_su,
+    find_su_sheet_pdf_for_su,
     find_debug_image_for_su,
 )
 from backend.services.launcher import (
@@ -22,9 +28,12 @@ from backend.services.launcher import (
     launch_cloudcompare_with_bins,
     launch_meshlab_with_ply,
     open_file_default,
+    reveal_in_explorer,
+    open_url,
 )
-from backend.services.volume import annotate_readiness
+from backend.services.volume import annotate_readiness, find_usdz_for_su
 from backend.services.volume import provision_from_ply as _provision_from_ply
+from backend.services.volume import deprovision_orphaned_cards as _deprovision_orphaned_cards
 from backend.services import volume_runner
 
 router = APIRouter(prefix="/api/su", tags=["su"])
@@ -55,8 +64,14 @@ def create_entry(req: CreateSUEntryRequest):
 
 @router.post("/provision-from-ply")
 def provision_from_ply():
-    """Scan PLY directory and auto-create volume cards for SUs without one."""
-    return _provision_from_ply()
+    """Reconcile volume cards against the PLY directory.
+
+    First removes cards whose backing pgram left 'processed' (its PLY is gone),
+    then auto-creates cards for SUs whose pgram is newly processed.
+    """
+    deprovisioned = _deprovision_orphaned_cards()
+    result = _provision_from_ply()
+    return {**result, **deprovisioned}
 
 
 def _resolve_su_ply(su_id: str, pgram_type: str):
@@ -114,7 +129,7 @@ def open_bins(su_id: str):
     if not top_pgram.isdigit():
         raise HTTPException(status_code=422, detail="No valid top pgram set for this SU")
 
-    bins = find_volume_bins_for_su(top_pgram)
+    bins = find_volume_bins_for_su(top_pgram, su_id)
     if not bins:
         raise HTTPException(
             status_code=404,
@@ -124,6 +139,21 @@ def open_bins(su_id: str):
     result = launch_cloudcompare_with_bins(bins)
     if not result.get("launched"):
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to open BIN files"))
+    return result
+
+
+@router.post("/entries/{su_id}/open-post-snip-bin")
+def open_post_snip_bin(su_id: str):
+    """Open the post-snip debug .bin in CloudCompare (available after post-snip runs)."""
+    bin_path = find_post_snip_bin_for_su(su_id)
+    if not bin_path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No post-snip .bin found for SU {su_id}. Run post-snip first.",
+        )
+    result = launch_cloudcompare_with_bins([bin_path])
+    if not result.get("launched"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to open BIN file"))
     return result
 
 
@@ -140,6 +170,65 @@ def open_volume(su_id: str):
     if not result.get("launched"):
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to open volume"))
     return result
+
+
+@router.post("/entries/{su_id}/open-top-volume")
+def open_top_volume(su_id: str):
+    """Open the SU top OBJ mesh in the default application (available after post-snip runs)."""
+    obj = find_top_volume_obj_for_su(su_id)
+    if not obj:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No top OBJ found for SU {su_id}. Run post-snip first.",
+        )
+    result = open_file_default(obj)
+    if not result.get("launched"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to open top volume"))
+    return result
+
+
+@router.post("/entries/{su_id}/open-su-sheet")
+def open_su_sheet(su_id: str):
+    """Open the SU sheet PDF in the default application (available after Create SU Sheet runs)."""
+    pdf = find_su_sheet_pdf_for_su(su_id)
+    if not pdf:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No SU sheet PDF found for SU {su_id}. Run Create SU Sheet first.",
+        )
+    result = open_file_default(pdf)
+    if not result.get("launched"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to open SU sheet"))
+    return result
+
+
+USDZ_VIEWER_URL = "https://www.usdz-viewer.net/"
+
+
+@router.post("/entries/{su_id}/open-lidar")
+def open_lidar(su_id: str):
+    """Reveal the SU's LiDAR USDZ scan in the file browser and open the web viewer.
+
+    Windows has no native .usdz viewer, so we can't open the file directly.
+    Instead we highlight it in Explorer (ready to drag into the page) and open
+    the usdz-viewer.net viewer the lab uses in the default browser.
+    """
+    rows = gsheets.get_su_rows()
+    if not any(r["su_id"] == su_id for r in rows):
+        raise HTTPException(status_code=404, detail=f"SU {su_id} not found")
+
+    scans = find_usdz_for_su(su_id)
+    if not scans:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No LiDAR USDZ scan found for SU {su_id} (Synology tharros_syn_2).",
+        )
+
+    revealed = reveal_in_explorer(scans[0])
+    if not revealed.get("launched"):
+        raise HTTPException(status_code=500, detail=revealed.get("error", "Failed to reveal LiDAR scan"))
+    open_url(USDZ_VIEWER_URL)  # best-effort; revealing the file is the essential step
+    return {"launched": True, "path": str(scans[0]), "count": len(scans), "viewer": USDZ_VIEWER_URL}
 
 
 @router.get("/entries/{su_id}/debug-image-exists")
@@ -240,6 +329,18 @@ def update_notes(su_id: str, req: UpdateNotesRequest):
     return {"ok": True}
 
 
+@router.put("/entries/{su_id}/ready-for-sheet")
+def update_ready_for_sheet(su_id: str, req: UpdateReadyForSheetRequest):
+    """Toggle whether this Volume Created card is included in Create SU Sheet runs."""
+    try:
+        gsheets.update_su_ready_for_sheet(su_id, req.ready)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "ready_for_sheet": req.ready}
+
+
 # NOTE: static routes (/run/status, /run/cancel, /run/chain) MUST precede dynamic /run/{kind}
 @router.get("/run/status")
 def volume_run_status():
@@ -266,11 +367,15 @@ def start_chain_run():
 
 
 @router.post("/run/{kind}")
-def start_volume_run(kind: str):
-    """Start a volume script run (kind: pre_snip | auto_snip | post_snip | create_su_sheet)."""
+def start_volume_run(kind: str, su_id: Optional[str] = None):
+    """Start a volume script run (kind: pre_snip | auto_snip | post_snip | create_su_sheet).
+
+    Pass ?su_id=<id> to run the script on just that one card (must be in the
+    step's source stage) instead of the whole stage — used to test a single SU.
+    """
     if kind not in ("pre_snip", "auto_snip", "post_snip", "create_su_sheet"):
         raise HTTPException(status_code=400, detail=f"Unknown volume run type: {kind}")
-    result = volume_runner.start_run(kind)
+    result = volume_runner.start_run(kind, su_id=su_id)
     if not result.get("started"):
         msg = result.get("error", "Failed to start run")
         status = 409 if "already in progress" in msg else 400

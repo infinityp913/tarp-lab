@@ -65,10 +65,24 @@ export async function updateNotes(suId: string, notes: string): Promise<void> {
   }
 }
 
+export async function updateReadyForSheet(suId: string, ready: boolean): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/ready-for-sheet`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ready }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function provisionFromPly(): Promise<{
   created: object[]
   skipped: { su_id?: string; pgram?: number; reason: string }[]
   ply_count: number
+  removed: { su_id: string; top_pgram: string }[]
+  cleared: { su_id: string; bot_pgram: string }[]
 }> {
   const res = await fetch('/api/su/provision-from-ply', { method: 'POST' })
   if (!res.ok) {
@@ -102,8 +116,40 @@ export async function openBins(suId: string): Promise<void> {
   }
 }
 
+export async function openPostSnipBin(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-post-snip-bin`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function openVolume(suId: string): Promise<void> {
   const res = await fetch(`/api/su/entries/${suId}/open-volume`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function openTopVolume(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-top-volume`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function openSuSheet(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-su-sheet`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
+export async function openLidar(suId: string): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/open-lidar`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)
@@ -118,8 +164,13 @@ export async function openDebugImage(suId: string): Promise<void> {
   }
 }
 
-export async function startVolumeRun(kind: VolumeRunKind): Promise<{ started: boolean; count?: number }> {
-  const res = await fetch(`/api/su/run/${kind}`, { method: 'POST' })
+export async function startVolumeRun(
+  kind: VolumeRunKind,
+  suId?: string,
+): Promise<{ started: boolean; count?: number }> {
+  // Pass su_id to run the script on just one card (single-SU test run).
+  const qs = suId ? `?su_id=${encodeURIComponent(suId)}` : ''
+  const res = await fetch(`/api/su/run/${kind}${qs}`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || res.statusText)

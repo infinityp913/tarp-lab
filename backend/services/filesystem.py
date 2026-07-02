@@ -421,11 +421,13 @@ def fix_su_folder_names(field_map: dict[str, dict]) -> dict:
     return {"renamed": renamed, "organized": organized, "skipped": skipped}
 
 
-def find_volume_bins_for_su(top_pgram: str) -> list[Path]:
-    """Find the two .bin files written by pre_snip_script for the given top pgram.
+def find_volume_bins_for_su(top_pgram: str, su_id: str = "") -> list[Path]:
+    """Find the two pre-snip .bin files for this SU.
 
-    Pre-snip saves files named *_top_with_dist_*.bin and *_bottom_with_dist_*.bin
-    inside Data/<Pgram_Job_{top_pgram}*>/.
+    Pre-snip writes one pair per SU into Data/SU<su_id>/ as
+    *_top_with_dist_*.bin and *_bottom_with_dist_*.bin. When su_id is given we
+    look there directly; otherwise (or if that folder is absent — legacy data)
+    we fall back to scanning the Data/<Pgram_Job_{top_pgram}*>/ folders.
     """
     cfg = get_config()
     if not cfg.volume_script_dir:
@@ -433,25 +435,109 @@ def find_volume_bins_for_su(top_pgram: str) -> list[Path]:
     data_dir = Path(cfg.volume_script_dir) / "Data"
     if not data_dir.exists():
         return []
+
+    def _dist_bins(folder: Path) -> list[Path]:
+        out = []
+        for f in folder.glob("*.bin"):
+            name_lower = f.name.lower()
+            if "_top_with_dist_" in name_lower or "_bottom_with_dist_" in name_lower:
+                out.append(f)
+        return out
+
+    su = str(su_id).strip()
+    if su:
+        su_folder = data_dir / f"SU{su}"
+        if su_folder.is_dir():
+            return _dist_bins(su_folder)
+
+    # Legacy layout: bins live in the top pgram's folder, prefixed SU<su>_.
     prefix = f"pgram_job_{str(top_pgram).strip()}"
+    su_marker = f"su{su.lower()}_" if su else ""
     bins: list[Path] = []
+    su_bins: list[Path] = []
     for d in data_dir.iterdir():
         if not d.is_dir() or not d.name.lower().startswith(prefix):
             continue
-        for f in d.glob("*.bin"):
-            name_lower = f.name.lower()
-            if "_top_with_dist_" in name_lower or "_bottom_with_dist_" in name_lower:
-                bins.append(f)
-    return bins
+        for f in _dist_bins(d):
+            bins.append(f)
+            if su_marker and f.name.lower().startswith(su_marker):
+                su_bins.append(f)
+    return su_bins or bins
 
 
-def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
-    """Find the final volume OBJ written by post_snip_script: Data/Final_Volumes/SU_{su_id}_raw.obj."""
+def find_post_snip_bin_for_su(su_id: str) -> Optional[Path]:
+    """Find the post-snip debug .bin written by post_snip_script.
+
+    post_snip saves a project bin containing the merged cloud/mesh, top/bottom
+    clouds and the top mesh (raw + trimmed) to Data/SU<su_id>/<su_id>_post_snip.bin.
+    This is the file to open in CloudCompare to debug a finished volume.
+    """
     cfg = get_config()
     if not cfg.volume_script_dir:
         return None
-    obj = Path(cfg.volume_script_dir) / "Data" / "Final_Volumes" / f"SU_{su_id}_raw.obj"
+    su = str(su_id).strip()
+    if not su:
+        return None
+    bin_path = Path(cfg.volume_script_dir) / "Data" / f"SU{su}" / f"{su}_post_snip.bin"
+    return bin_path if bin_path.exists() else None
+
+
+def find_volume_obj_for_su(su_id: str) -> Optional[Path]:
+    """Find the final volume OBJ written by post_snip_script.
+
+    post_snip saves it to this season's Volumetrics folder under the SU's trench:
+    <base_path>/Volumetrics_<year>/Trench NNNNN/SU_<su_id>.obj (trench inferred from the
+    SU number, e.g. 20001 -> Trench 20000), matching the script's _trench_name().
+    """
+    cfg = get_config()
+    m = re.search(r"\d+", su_id)
+    if not cfg.base_path or not m:
+        return None
+    trench = (int(m.group(0)) // 1000) * 1000
+    obj = (
+        Path(cfg.base_path)
+        / f"Volumetrics_{cfg.season_year}"
+        / f"Trench {trench}"
+        / f"SU_{su_id}.obj"
+    )
     return obj if obj.exists() else None
+
+
+def find_top_volume_obj_for_su(su_id: str) -> Optional[Path]:
+    """Find the SU top OBJ written by post_snip_script.
+
+    post_snip saves the top mesh to this season's Volumetrics folder under a shared
+    "SU Top OBJs" subfolder (where the Create-SU-Sheet QGIS script reads it):
+    <base_path>/Volumetrics_<year>/SU Top OBJs/SU_<su_id>_top.obj.
+    """
+    cfg = get_config()
+    if not cfg.base_path:
+        return None
+    obj = (
+        Path(cfg.base_path)
+        / f"Volumetrics_{cfg.season_year}"
+        / "SU Top OBJs"
+        / f"SU_{su_id}_top.obj"
+    )
+    return obj if obj.exists() else None
+
+
+def find_su_sheet_pdf_for_su(su_id: str) -> Optional[Path]:
+    """Find the SU sheet PDF written by generate_su_sheets.py (Create SU Sheet run).
+
+    The QGIS script writes it to this season's Volumetrics folder as
+    <base_path>/Volumetrics_<year>/SU_<su_id>.pdf (the su value is prefixed with
+    "SU_", matching _write_su_sheets_input()).
+    """
+    cfg = get_config()
+    if not cfg.base_path:
+        return None
+    pdf = (
+        Path(cfg.base_path)
+        / f"Volumetrics_{cfg.season_year}"
+        / f"SU_{su_id}.pdf"
+    )
+    return pdf if pdf.exists() else None
 
 
 def find_debug_image_for_su(su_id: str, top_pgram: str) -> Optional[Path]:

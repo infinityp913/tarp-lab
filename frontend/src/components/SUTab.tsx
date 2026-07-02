@@ -127,7 +127,12 @@ export function SUTab() {
     } else {
       pollingRef.current = false
       if (status.status === 'done') {
-        toast(`Script finished — ${status.cards_advanced} card${status.cards_advanced !== 1 ? 's' : ''} advanced`, 'success')
+        const advanced = `${status.cards_advanced} card${status.cards_advanced !== 1 ? 's' : ''} advanced`
+        if (status.skipped > 0) {
+          toast(`Script finished — ${advanced}, ${status.skipped} left behind (no output produced — check the log)`, 'error')
+        } else {
+          toast(`Script finished — ${advanced}`, 'success')
+        }
       } else if (status.status === 'failed') {
         toast(`Script failed: ${status.error || 'unknown error'}`, 'error')
       }
@@ -161,13 +166,20 @@ export function SUTab() {
     setScanning(true)
     try {
       const result = await provisionFromPly()
-      if (result.created.length > 0) {
-        toast(`Created ${result.created.length} volume card${result.created.length !== 1 ? 's' : ''} from ${result.ply_count} PLY file${result.ply_count !== 1 ? 's' : ''}`, 'success')
+      const removed = result.removed?.length ?? 0
+      const cleared = result.cleared?.length ?? 0
+      const changed = result.created.length + removed + cleared
+      if (changed > 0) {
+        const parts: string[] = []
+        if (result.created.length > 0) parts.push(`created ${result.created.length} card${result.created.length !== 1 ? 's' : ''}`)
+        if (removed > 0) parts.push(`removed ${removed} orphaned card${removed !== 1 ? 's' : ''}`)
+        if (cleared > 0) parts.push(`cleared bottom on ${cleared} card${cleared !== 1 ? 's' : ''}`)
+        toast(`PLY scan — ${parts.join(', ')}`, 'success')
         await load()
       } else if (result.ply_count === 0) {
         toast('No PLY files found in output directory', 'error')
       } else {
-        toast(`${result.ply_count} PLY file${result.ply_count !== 1 ? 's' : ''} scanned — all SUs already have cards`, 'success')
+        toast(`${result.ply_count} PLY file${result.ply_count !== 1 ? 's' : ''} scanned — cards already in sync`, 'success')
       }
     } catch (err: unknown) {
       toast((err as Error).message || 'PLY scan failed', 'error')
@@ -392,6 +404,8 @@ export function SUTab() {
                         }
                         onAdvance={next ? () => requestMove(entry.su_id, next, entry) : undefined}
                         nextStageLabel={next ? `Move to ${stageLabel(next)}` : undefined}
+                        runActive={runActive}
+                        onRunStarted={startPolling}
                       />
                     )
                   }}
@@ -451,16 +465,21 @@ export function SUTab() {
                     />
                   </ActionGutter>
                 )}
-                {key === 'volumetrics_created' && (
-                  <ActionGutter>
-                    <GutterButton label="Create" sub="SU Sheet" color="#22c55e"
-                      disabled={runActive}
-                      count={byStage('volumetrics_created').length}
-                      title={`Run create_su_sheet_script.py on ${byStage('volumetrics_created').length} Volume Created card(s) then move to SU Sheet Created`}
-                      onClick={() => handleVolumeRun('create_su_sheet')}
-                    />
-                  </ActionGutter>
-                )}
+                {key === 'volumetrics_created' && (() => {
+                  const readyForSheet = byStage('volumetrics_created').filter((e) => e.ready_for_sheet)
+                  return (
+                    <ActionGutter>
+                      <GutterButton label="Create" sub="SU Sheet" color="#22c55e"
+                        disabled={runActive || readyForSheet.length === 0}
+                        count={readyForSheet.length}
+                        title={readyForSheet.length === 0
+                          ? 'Check "Ready for SU sheet" on the Volume Created cards you want to include first'
+                          : `Run create_su_sheet_script.py on ${readyForSheet.length} checked card(s) then move to SU Sheet Created`}
+                        onClick={() => handleVolumeRun('create_su_sheet')}
+                      />
+                    </ActionGutter>
+                  )
+                })()}
               </Fragment>
             ))}
           </div>
@@ -591,6 +610,7 @@ function VolumeRunBanner({ run, onDismiss }: { run: VolumeRunStatus; onDismiss: 
             ? `Running ${run.step_label ?? kindLabel}…`
             : run.status === 'done'
               ? `${kindLabel} finished — ${run.cards_advanced} card${run.cards_advanced !== 1 ? 's' : ''} advanced`
+                + (run.skipped > 0 ? `, ${run.skipped} left behind` : '')
               : `${kindLabel} failed`}
         </div>
         {hasCounts && (

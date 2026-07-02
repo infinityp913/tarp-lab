@@ -2,6 +2,24 @@
 
 All notable changes to TARP Lab Dashboard are documented here.
 
+## [1.0.4.0] - 2026-06-30
+
+### Changed
+- Post-snip now reads a **single combined bin per SU** instead of the two-file `_top_`/`_bottom_` pair. The operator crops top and bottom in CloudCompare and saves **both** clouds into one project bin named `<su>.bin` (flexible: `<su>.bin`, `SU<su>.bin`, any case) in `Data/SU<su>/`. Post-snip identifies which cloud is top vs bottom by the `Pgram_Job_<n>` number embedded in each cloud's name, matched against `top`/`bottom` in `input.json` (with name-marker and order fallbacks). The two-file detection path is removed; post-snip no longer needs the source PLYs present.
+
+### Fixed
+- Post-snip crashed on the lab's CloudComPy 3.12 build: `ccScalarField.toNpArray()` does not exist there — switched the C2C filter and density trim to `toNpArrayCopy()`.
+- Post-snip aborted on Windows when log lines contained the `→` character (cp1252 console can't encode it); replaced with `->` and added a stdout/stderr guard so stray Unicode no longer kills a run.
+- The merged volume OBJ was never written because `Data/Final_Volumes/` didn't exist and `cc.SaveMesh` fails silently into a missing directory — post-snip now creates output directories first. This is the file the dashboard uses to detect post-snip completion (`Volume ↗`).
+- `volume_measures.txt` rows are keyed and matched as `SU<su>` consistently, so re-running an SU updates its row in place instead of appending a duplicate.
+
+## [1.0.3.0] - 2026-06-30
+
+### Changed
+- Pre-snip now writes **one `.bin` pair per SU**, in its own `Data/SU<su>/` folder (replacing the per-top-pgram folder), so each SU's working files are isolated and self-describing. Filenames still carry the full top/bottom pgram stems.
+- Manual crop no longer needs a `_snipped` rename: open the SU's bins, crop, and **save over the same files**. Post-snip resolves each SU's pair from its `Data/SU<su>/` folder, and the `to_be_post_snipped` stage move is the "snipping done" signal.
+- **Open in CC ↗** now opens only the selected SU's two bins (from `Data/SU<su>/`) instead of every dist bin in the top folder.
+
 ## [1.0.2.0] - 2026-06-29
 
 ### Changed

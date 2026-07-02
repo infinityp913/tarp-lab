@@ -15,6 +15,7 @@ from typing import Optional
 
 from backend.config import LOG_PATH, get_config
 from backend.services import gsheets
+from backend.services.filesystem import find_su_sheet_pdf_for_su
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ _state: dict = {
     "status": "idle",   # idle | running | done | failed
     "error": None,
     "cards_advanced": 0,
+    "skipped": 0,       # cards NOT advanced because their expected output was missing
     "processed": 0,     # SUs finished so far (from the script's progress.json)
     "total": 0,         # SUs to process this run (0 = unknown yet → indeterminate)
     "step_label": None,  # chain runs: which step is running, e.g. "Post-Snip (3/4)"
@@ -87,6 +89,22 @@ def _log(msg: str) -> None:
             f.write(f"VOL {msg}\n")
     except OSError:
         pass
+
+
+def _log_script_output(kind: str, stdout: Optional[str], stderr: Optional[str]) -> None:
+    """Append a volume script's captured stdout/stderr to the log, one tagged line
+    each, so per-SU detail (trim thresholds, warnings) is visible after the run."""
+    for stream, marker in ((stdout, "|"), (stderr, "!")):
+        text = (stream or "").rstrip()
+        if not text:
+            continue
+        try:
+            with open(LOG_PATH, "a") as f:
+                f.write(f"VOL --- {kind} {'stdout' if marker == '|' else 'stderr'} ---\n")
+                for line in text.splitlines():
+                    f.write(f"VOL {marker} {line}\n")
+        except OSError:
+            pass
 
 
 def get_status() -> dict:
@@ -179,6 +197,14 @@ def _prepare_run(kind: str, script: str, cards: list[dict], cfg) -> tuple[list[s
         # Tell pre_snip/auto_snip where the overnight-exported PLY meshes live, instead
         # of the script's stale ~/Documents/TARP/ply default.
         env["TARP_PLY_DIR"] = str(Path(cfg.overnight_output_assets_root) / "PLY")
+    if env is not None and kind == "post_snip" and cfg.base_path:
+        # Tell post_snip where this season's Volumetrics_<year> root is. It writes each
+        # SU's final volume to <root>/Trench NNNNN/SU_<su>.obj (lab archival convention)
+        # and the top OBJ to <root>/SU Top OBJs/SU_<su>_top.obj, where the Create-SU-Sheet
+        # QGIS script (generate_su_sheets.py) reads it.
+        env["TARP_VOLUMETRICS_DIR"] = str(
+            Path(cfg.base_path) / f"Volumetrics_{cfg.season_year}"
+        )
     return [cfg.cloudcompy_python, script], cfg.volume_script_dir, env, count
 
 
@@ -212,7 +238,12 @@ def _validate(kind: str) -> Optional[str]:
     return None
 
 
-def start_run(kind: str) -> dict:
+def start_run(kind: str, su_id: Optional[str] = None) -> dict:
+    """Start a volume run over every card in the step's source stage, or — when
+    su_id is given — over just that one card (used by the per-card single-SU
+    button to test a single SU). The single card must already be in the step's
+    source stage.
+    """
     with _lock:
         if _state["active"]:
             return {"started": False, "error": "A volume run is already in progress."}
@@ -224,9 +255,22 @@ def start_run(kind: str) -> dict:
         from_stage, _ = _STEPS[kind]
         su_rows = gsheets.get_su_rows()
         cards = [r for r in su_rows if r.get("stage") == from_stage]
-        if not cards:
-            from backend.models import SUEntry
-            label = SUEntry.stage_label(from_stage)
+
+        from backend.models import SUEntry
+        label = SUEntry.stage_label(from_stage)
+        if su_id is not None:
+            cards = [r for r in cards if str(r.get("su_id")) == str(su_id)]
+            if not cards:
+                return {"started": False,
+                        "error": f"SU {su_id} is not in '{label}'. Move it there first."}
+        elif kind == "create_su_sheet":
+            # Only process cards the user checked "ready for SU sheet creation".
+            cards = [r for r in cards if r.get("ready_for_sheet")]
+            if not cards:
+                return {"started": False,
+                        "error": "No Volume Created cards are checked ready for SU sheet "
+                                 "creation. Check the box on the cards you want to include."}
+        elif not cards:
             return {"started": False, "error": f"No volume cards in '{label}' to process."}
 
         _state["active"] = True
@@ -235,6 +279,7 @@ def start_run(kind: str) -> dict:
         _state["status"] = "running"
         _state["error"] = None
         _state["cards_advanced"] = 0
+        _state["skipped"] = 0
         _state["processed"] = 0
         _state["total"] = 0
         _state["step_label"] = None
@@ -300,35 +345,54 @@ def _worker(kind: str, cards: list[dict]) -> None:
         _finish(False, str(e), 0)
         return
 
+    # Persist the script's own stdout/stderr to the log. subprocess output is piped
+    # (not inherited), so without this the per-SU detail lines — e.g. the top-mesh
+    # distance-trim threshold used for tuning — are lost on a successful run.
+    _log_script_output(kind, proc.stdout, proc.stderr)
+
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
         _finish(False, detail[-800:] if detail else f"Script exited with code {proc.returncode}", 0)
         return
 
-    # Script succeeded — advance all cards from from_stage → to_stage in Sheets
+    # Script succeeded — advance cards from from_stage → to_stage in Sheets.
     # auto_snip sets snip_method="auto" so the debug image button appears;
     # pre_snip/post_snip clear it (no debug image produced by those scripts).
+    #
+    # create_su_sheet's QGIS script catches per-SU errors internally and still exits 0
+    # (e.g. a missing ortho for one SU), so a zero return code does NOT mean every sheet
+    # was produced. Only advance cards whose PDF actually landed on disk; leave the rest
+    # in Volume Created so the failure is visible and the run can be retried.
     snip = "auto" if kind == "auto_snip" else ""
     advanced = 0
+    skipped: list[str] = []
     for card in cards:
         su_id = card["su_id"]
+        if kind == "create_su_sheet" and not find_su_sheet_pdf_for_su(su_id):
+            skipped.append(str(su_id))
+            continue
         try:
             gsheets.update_su_stage(su_id, to_stage, snip_method=snip)
             advanced += 1
         except Exception as e:
             _log(f"advance {su_id} to {to_stage} failed: {e}")
 
-    _finish(True, None, advanced)
-    _log(f"finished '{kind}': advanced {advanced}/{len(cards)} card(s)")
+    if skipped:
+        _log(f"  {len(skipped)} card(s) left in '{from_stage}' — no output produced: {', '.join(skipped)}")
+
+    _finish(True, None, advanced, len(skipped))
+    _log(f"finished '{kind}': advanced {advanced}/{len(cards)} card(s)"
+         + (f", {len(skipped)} skipped" if skipped else ""))
 
 
-def _finish(ok: bool, error: Optional[str], advanced: int) -> None:
+def _finish(ok: bool, error: Optional[str], advanced: int, skipped: int = 0) -> None:
     global _progress_path
     with _lock:
         _state["active"] = False
         _state["status"] = "done" if ok else "failed"
         _state["error"] = error
         _state["cards_advanced"] = advanced
+        _state["skipped"] = skipped
         _state["step_label"] = None
         if ok and _state["total"]:
             _state["processed"] = _state["total"]
@@ -418,6 +482,9 @@ def _chain_worker(
         # Gather current cards in from_stage (includes any just advanced by previous step)
         su_rows = gsheets.get_su_rows()
         cards = [r for r in su_rows if r.get("stage") == from_stage]
+        if kind == "create_su_sheet":
+            # Mirror the standalone run: only cards checked ready for SU sheet creation.
+            cards = [r for r in cards if r.get("ready_for_sheet")]
         if not cards:
             _log(f"chain step {step_num} ({kind}): no cards in '{from_stage}', skipping script")
             continue

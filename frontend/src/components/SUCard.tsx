@@ -4,7 +4,8 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SUEntry } from '../types'
 import {
   openPly, openBothPly, updatePgrams,
-  openBins, openVolume, openDebugImage,
+  openBins, openPostSnipBin, openVolume, openTopVolume, openSuSheet, openDebugImage, openLidar, startVolumeRun,
+  updateReadyForSheet,
 } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
@@ -15,9 +16,11 @@ interface Props {
   onUpdated: (entry: SUEntry) => void
   onAdvance?: () => void
   nextStageLabel?: string
+  runActive?: boolean
+  onRunStarted?: () => void
 }
 
-export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }: Props) {
+export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, runActive, onRunStarted }: Props) {
   const {
     attributes, listeners, setNodeRef, transform, isDragging,
   } = useDraggable({ id: entry.su_id })
@@ -73,6 +76,33 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
     }
   }
 
+  async function handlePostSnipOne(e: React.MouseEvent) {
+    e.stopPropagation()
+    setActionLoading('postsnip')
+    try {
+      await startVolumeRun('post_snip', entry.su_id)
+      toast(`Started post-snip on SU ${entry.su_id}…`, 'info')
+      onRunStarted?.()
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to start post-snip', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  async function handleReadyForSheetToggle(e: React.ChangeEvent<HTMLInputElement>) {
+    const next = e.target.checked
+    setActionLoading('readysheet')
+    try {
+      await updateReadyForSheet(entry.su_id, next)
+      onUpdated({ ...entry, ready_for_sheet: next })
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to update readiness', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   async function handlePgramBlur() {
     if (top === savedTop.current && bot === savedBot.current) return
     try {
@@ -103,7 +133,7 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
           {entry.ready && (
             <span
               style={readyBadge}
-              title="Ready to extract — both top & bottom PLYs are processed"
+              title="Ready to extract — both top & bottom PLYs are processed and a LiDAR scan exists"
             >
               ✓ Ready
             </span>
@@ -203,6 +233,30 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
           </button>
         )}
 
+        {stage === 'to_be_snipped' && entry.has_lidar && (
+          <button
+            style={{ ...actionBtn, borderColor: '#f59e0b66', color: '#fbbf24' }}
+            disabled={busy}
+            title="Reveal this SU's LiDAR scan in Explorer and open the USDZ web viewer (drag the file in)"
+            onClick={(e) => handleAction(e, 'lidar', () => openLidar(entry.su_id))}
+          >
+            {actionLoading === 'lidar' ? '…' : 'LiDAR ↗'}
+          </button>
+        )}
+
+        {stage === 'to_be_post_snipped' && (
+          <button
+            style={{ ...actionBtn, borderColor: '#ec489966', color: '#f472b6' }}
+            disabled={busy || runActive}
+            title={runActive
+              ? 'A volume run is already in progress'
+              : `Run post-snip on just this SU (${entry.su_id}) — test a single card`}
+            onClick={handlePostSnipOne}
+          >
+            {actionLoading === 'postsnip' ? '…' : 'Post-Snip ↗'}
+          </button>
+        )}
+
         {(stage === 'to_be_post_snipped' || stage === 'volumetrics_created') && hasDebugImage && (
           <button
             style={{ ...actionBtn, borderColor: '#06b6d466', color: '#22d3ee' }}
@@ -216,6 +270,17 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
 
         {stage === 'volumetrics_created' && (
           <button
+            style={{ ...actionBtn, borderColor: '#8b5cf666', color: '#a78bfa' }}
+            disabled={busy}
+            title="Open the post-snip debug .bin in CloudCompare"
+            onClick={(e) => handleAction(e, 'postsnipbin', () => openPostSnipBin(entry.su_id))}
+          >
+            {actionLoading === 'postsnipbin' ? '…' : 'Debug in CC ↗'}
+          </button>
+        )}
+
+        {stage === 'volumetrics_created' && (
+          <button
             style={{ ...actionBtn, borderColor: '#22c55e66', color: '#4ade80' }}
             disabled={busy}
             title="Open the final volume OBJ mesh"
@@ -224,7 +289,53 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel }:
             {actionLoading === 'volume' ? '…' : 'Volume ↗'}
           </button>
         )}
+
+        {stage === 'volumetrics_created' && (
+          <button
+            style={{ ...actionBtn, borderColor: '#14b8a666', color: '#2dd4bf' }}
+            disabled={busy}
+            title="Open the SU top OBJ mesh"
+            onClick={(e) => handleAction(e, 'topvolume', () => openTopVolume(entry.su_id))}
+          >
+            {actionLoading === 'topvolume' ? '…' : 'Top Volume ↗'}
+          </button>
+        )}
+
+        {stage === 'su_sheet_created' && (
+          <button
+            style={{ ...actionBtn, borderColor: '#22c55e66', color: '#4ade80' }}
+            disabled={busy}
+            title="Open the generated SU sheet PDF"
+            onClick={(e) => handleAction(e, 'susheet', () => openSuSheet(entry.su_id))}
+          >
+            {actionLoading === 'susheet' ? '…' : 'SU Sheet ↗'}
+          </button>
+        )}
       </div>
+
+      {/* Ready-for-SU-sheet checkbox — Create SU Sheet only runs on checked cards */}
+      {stage === 'volumetrics_created' && (
+        <label
+          style={{
+            ...readyForSheetRow,
+            ...(entry.ready_for_sheet ? readyForSheetRowChecked : null),
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          title="Mark this card ready for SU sheet creation — the Create SU Sheet button only runs on checked cards"
+        >
+          <input
+            type="checkbox"
+            checked={!!entry.ready_for_sheet}
+            disabled={actionLoading === 'readysheet'}
+            onChange={handleReadyForSheetToggle}
+            style={{ cursor: 'pointer', accentColor: '#22c55e', margin: 0 }}
+          />
+          <span>
+            {actionLoading === 'readysheet' ? 'Saving…' : 'Ready for SU sheet'}
+          </span>
+        </label>
+      )}
     </div>
   )
 }
@@ -245,6 +356,18 @@ const readyBadge: React.CSSProperties = {
   border: '1px solid #22c55e66', borderRadius: 20,
   padding: '0 7px', fontSize: 10, fontWeight: 700,
   lineHeight: 1.7, letterSpacing: '0.02em', whiteSpace: 'nowrap',
+}
+
+const readyForSheetRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  marginTop: 6, padding: '4px 7px', borderRadius: 4,
+  border: '1px solid #22c55e33', background: '#22c55e0d',
+  color: T.textMuted, fontSize: 11, fontWeight: 600,
+  cursor: 'pointer', userSelect: 'none',
+}
+
+const readyForSheetRowChecked: React.CSSProperties = {
+  border: '1px solid #22c55e66', background: '#22c55e1f', color: '#4ade80',
 }
 
 const advanceBtn: React.CSSProperties = {

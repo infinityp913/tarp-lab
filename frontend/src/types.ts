@@ -18,11 +18,15 @@ export interface SUEntry {
   stage: string
   notes: string
   last_updated: string
-  /** Computed server-side: both top & bottom pgrams are processed (PLYs exist),
-   *  so the volume is ready to be extracted. */
+  /** Computed server-side: both top & bottom pgrams are processed (PLYs exist)
+   *  and a matching LiDAR scan exists, so the volume is ready to be extracted. */
   ready?: boolean
+  /** Computed server-side: a matching LiDAR USDZ scan exists on disk for this SU. */
+  has_lidar?: boolean
   /** "auto" when auto-snip advanced this card; "" otherwise. Used to show debug image button. */
   snip_method?: string
+  /** User-checked on Volume Created cards: include this card when Create SU Sheet runs. */
+  ready_for_sheet?: boolean
 }
 
 export const PGRAM_STAGES = [
@@ -52,6 +56,7 @@ export interface VolumeRunStatus {
   status: 'idle' | 'running' | 'done' | 'failed'
   error: string | null
   cards_advanced: number
+  skipped: number
   processed: number
   total: number
   step_label: string | null

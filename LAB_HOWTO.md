@@ -139,7 +139,7 @@ This tab tracks individual stratigraphic units through the CloudComPy snip pipel
 **Columns (left to right):**
 1. **Not Started** — SU registered; waiting for both PLYs to be processed before it can enter the pipeline
 2. **To Be Pre-Snipped** — ready to run the pre-snip script (generates .bin point-cloud files in CloudCompare)
-3. **To Be Snipped** — pre-snip finished; open the pre-snip `.bin` pair in CloudCompare via **Open in CC ↗**, crop top and bottom to the SU boundary, and **Save As** each with a `_snipped` suffix in the same folder
+3. **To Be Snipped** — pre-snip finished; open this SU's pre-snip `.bin` pair in CloudCompare via **Open in CC ↗**, crop top and bottom to the SU boundary, then save **both** cropped clouds together into a single bin named `<su>.bin` (e.g. `20001.bin`) in the same `Data/SU<su>/` folder
 4. **To Be Post-Snipped** — snipping done; ready for post-snip to compute the final volume OBJ
 5. **Volume Created** — volume OBJ generated and available to review
 6. **SU Sheet Created** — SU data sheet completed
@@ -148,14 +148,14 @@ This tab tracks individual stratigraphic units through the CloudComPy snip pipel
 **Moving cards:**
 
 - **Drag and drop** a card to the next column, or use the **→ button** in the top-right of each card to advance it one step. Moving backward is always allowed.
-- Some transitions require a quick confirmation (e.g. dragging from To Be Snipped → To Be Post-Snipped confirms that you have cropped both bins in CloudCompare and saved them with the `_snipped` suffix). Answer honestly.
+- Some transitions require a quick confirmation (e.g. dragging from To Be Snipped → To Be Post-Snipped confirms that you have cropped both clouds in CloudCompare and saved them together as `<su>.bin`). Answer honestly — this stage move is what tells post-snip the SU is ready.
 
 **Gutter buttons between columns:**
 
 - **Move Ready → Pre-Snip** (between Not Started and To Be Pre-Snipped): moves all "ready" cards (both PLYs processed) in Not Started into To Be Pre-Snipped in one click.
 - **Run All Pipeline** (also between Not Started and To Be Pre-Snipped): runs the full pipeline in one click — moves ready cards, then sequentially runs pre-snip, post-snip, and create-SU-sheet scripts. Cards advance automatically when each script succeeds. (Auto-snip is disabled; manual crop in CloudCompare is required between pre-snip and post-snip.)
 - **Pre-Snip Script** (between To Be Pre-Snipped and To Be Snipped): runs `pre_snip_script.py` on all cards in To Be Pre-Snipped.
-- **Auto-Snip Script** (between To Be Snipped and To Be Post-Snipped): runs `auto_snip_script.py` (disabled — unreliable). The lab snips manually: use **Open in CC ↗**, crop top and bottom, and Save As with a `_snipped` suffix before running Post-Snip.
+- **Auto-Snip Script** (between To Be Snipped and To Be Post-Snipped): runs `auto_snip_script.py` (disabled — unreliable). The lab snips manually: use **Open in CC ↗**, crop top and bottom, and save both clouds together as `<su>.bin` before running Post-Snip.
 - **Post-Snip Script** (between To Be Post-Snipped and Volume Created): runs `post_snip_script.py`.
 - **Create SU Sheet** (between Volume Created and SU Sheet Created): runs `generate_su_sheets.py`.
 
@@ -163,7 +163,7 @@ This tab tracks individual stratigraphic units through the CloudComPy snip pipel
 
 **Card action buttons:**
 
-- **Open in CC ↗** — visible on cards in *To Be Snipped*. Opens the two pre-snip `.bin` files in CloudCompare. After opening: crop top and bottom to the SU boundary, then **Save As** each file with a `_snipped` suffix (e.g. `<top_id>_top_with_dist_for_<bot_id>_snipped.bin`) in the same `Data/<top_id>/` folder. Post-Snip picks these up automatically.
+- **Open in CC ↗** — visible on cards in *To Be Snipped*. Opens this SU's two pre-snip `.bin` files from `Data/SU<su>/` in CloudCompare. After opening: crop top and bottom to the SU boundary, then select **both** cropped clouds and save them together as a single bin named `<su>.bin` (e.g. `20001.bin`; `SU20001.bin` also works, any case) in the same `Data/SU<su>/` folder. Post-Snip picks this up automatically.
 - **Debug Img ↗** — visible on cards that were advanced by auto-snip (legacy; auto-snip is disabled in normal workflow). Opens the debug image in the default viewer.
 - **Volume ↗** — visible on cards in *Volume Created*. Opens the final volume OBJ in the default application.
 
@@ -226,8 +226,8 @@ That's the only change needed — the previous season's trenches stay on disk bu
 | Folder won't move | Close the job in Metashape first — Windows locks the folder while it's open. |
 | Pre-/Auto-/Post-Snip button shows an error | Check the `scripts:` section in `config.yaml` — the script paths and `cloudcompy_python` must exist on disk. The error message in the banner tells you which path is wrong. |
 | Script ran but no cards advanced | The script may have exited with an error (non-zero return code). The banner shows the last 800 characters of the script output. Check that the `Data/` subfolder inside `volume_script_dir` has the expected pgram job subfolders. |
-| "Open in CC ↗" button says no .bin files found | Pre-snip has not run for this SU yet, or the `.bin` files are in an unexpected location. The files should be inside `Data/<Pgram_Job_{top_pgram}*>/` as `*_top_with_dist_*.bin` and `*_bottom_with_dist_*.bin`. |
-| "Volume ↗" button says no OBJ found | Post-snip has not run for this SU yet. The file should be at `Data/Final_Volumes/SU_{su_id}_raw.obj` inside `volume_script_dir`. |
+| "Open in CC ↗" button says no .bin files found | Pre-snip has not run for this SU yet, or the `.bin` files are in an unexpected location. The files should be inside `Data/SU<su>/` as `*_top_with_dist_*.bin` and `*_bottom_with_dist_*.bin`. |
+| "Volume ↗" button says no OBJ found | Post-snip has not run for this SU yet. The file should be at `Volumetrics_<year>/Trench NNNNN/SU_<su_id>.obj` under `base_path` (e.g. `Volumetrics_2026/Trench 20000/SU_20001.obj`). |
 
 ---
 

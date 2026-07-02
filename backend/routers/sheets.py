@@ -28,6 +28,11 @@ def sync():
             stage=r["stage"],
             notes=r.get("notes", ""),
             last_updated=r.get("last_updated", ""),
+            # Preserve per-card flags so full_sync round-trips them instead of
+            # resetting to defaults (would uncheck "Ready for SU sheet" and clear
+            # the auto-snip debug-image flag on every sync).
+            snip_method=r.get("snip_method", ""),
+            ready_for_sheet=r.get("ready_for_sheet", False),
         )
         for r in su_rows
         if r.get("su_id")

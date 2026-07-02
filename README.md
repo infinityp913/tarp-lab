@@ -152,7 +152,7 @@ are matched.
 | To Be Aligned | To Overnight | Did the alignment script run successfully? |
 | To Overnight | Processed | Did the overnight script run succeed? |
 | To Be Pre-Snipped | To Be Snipped | Did not run pre-snip — use the Pre-Snip button. |
-| To Be Snipped | To Be Post-Snipped | Confirm manual crop: open the pre-snip bins in CloudCompare (Open in CC ↗), crop top & bottom, and Save As each with a `_snipped` suffix in the same `Data/<top_id>/` folder before running Post-Snip. |
+| To Be Snipped | To Be Post-Snipped | Confirm manual snip: open this SU's pre-snip bins in CloudCompare (Open in CC ↗), crop top & bottom, and save **both** cropped clouds together as `<su>.bin` in `Data/SU<su>/` before running Post-Snip. |
 | To Be Post-Snipped | Volume Created | Did not run post-snip — use the Post-Snip button. |
 
 The SU snip transitions gate against accidental drag-and-drop. Cards can still be moved backward freely. The "→" button on each card advances it one step and also triggers the confirmation dialog where required.

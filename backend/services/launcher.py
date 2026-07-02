@@ -55,11 +55,11 @@ def launch_cloudcompare_with_ply(ply_path: Path) -> dict:
 
 def launch_cloudcompare_with_plys(ply_paths: list[Path]) -> dict:
     cfg = get_config()
-    # CloudCompare only reliably loads a single bare path argument; multiple files
-    # must be passed via the "-O" (open) command, once per file.
-    args: list[str] = []
-    for p in ply_paths:
-        args += ["-O", str(p)]
+    # Pass bare paths so CloudCompare opens the interactive GUI with all files
+    # loaded. Do NOT use "-O" here: any "-" command switches CloudCompare into
+    # headless command-line mode (it loads, runs the empty pipeline, shows a
+    # "Job done." dialog, and exits) instead of opening the GUI.
+    args = [str(p) for p in ply_paths]
     return _open(cfg.cloudcompare_path, args)
 
 
@@ -84,11 +84,12 @@ def launch_qgis(job: Optional[PgramJob] = None) -> dict:
 
 
 def launch_cloudcompare_with_bins(bin_paths: list[Path]) -> dict:
-    """Open one or more .bin files in CloudCompare."""
+    """Open one or more .bin files in CloudCompare's interactive GUI."""
     cfg = get_config()
-    args: list[str] = []
-    for p in bin_paths:
-        args += ["-O", str(p)]
+    # Bare paths only — see launch_cloudcompare_with_plys. Using "-O" puts
+    # CloudCompare into headless command-line mode ("Job done." dialog, then exit)
+    # instead of opening the GUI for manual snipping.
+    args = [str(p) for p in bin_paths]
     return _open(cfg.cloudcompare_path, args)
 
 
@@ -104,6 +105,33 @@ def open_file_default(file_path: Path) -> dict:
             os.startfile(str(file_path))
         else:
             subprocess.Popen(["xdg-open", str(file_path)])
+        return {"launched": True}
+    except Exception as e:
+        return {"launched": False, "error": str(e)}
+
+
+def reveal_in_explorer(file_path: Path) -> dict:
+    """Open the OS file browser with this file highlighted (ready to drag out)."""
+    if not file_path.exists():
+        return {"launched": False, "error": f"File not found: {file_path}"}
+    try:
+        if sys.platform == "win32":
+            # explorer returns exit code 1 even on success, so don't check it.
+            subprocess.Popen(["explorer", f"/select,{file_path}"])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(file_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(file_path.parent)])
+        return {"launched": True}
+    except Exception as e:
+        return {"launched": False, "error": str(e)}
+
+
+def open_url(url: str) -> dict:
+    """Open a URL in the machine's default web browser."""
+    import webbrowser
+    try:
+        webbrowser.open(url)
         return {"launched": True}
     except Exception as e:
         return {"launched": False, "error": str(e)}

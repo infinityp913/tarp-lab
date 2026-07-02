@@ -87,12 +87,13 @@ SU_TOP_PGRAM = 1
 SU_BOT_PGRAM = 2
 SU_STAGE_COL = 3        # raw stage string — placed before checkbox columns for visibility
 SU_VOL = 4
-SU_SHEET = 5
-SU_AIR = 6
-SU_NOTES = 7
-SU_UPDATED = 8
-SU_SNIP_METHOD_COL = 9  # "auto" when auto-snip advanced this card; "" otherwise
-SU_COLS = 10
+SU_READY_SHEET = 5      # TRUE when the card is checked ready for SU-sheet creation
+SU_SHEET = 6
+SU_AIR = 7
+SU_NOTES = 8
+SU_UPDATED = 9
+SU_SNIP_METHOD_COL = 10  # "auto" when auto-snip advanced this card; "" otherwise
+SU_COLS = 11
 
 # The five trench-specific SU tabs
 _SU_TRENCH_TABS = [
@@ -294,11 +295,53 @@ def _ensure_sheets() -> tuple[int, dict[str, int]]:
                         for s in meta.get("sheets", [])}
 
         trench_tab_ids = {tab: existing.get(tab, 0) for tab in _SU_TRENCH_TABS}
+        _migrate_su_columns(svc, sid, trench_tab_ids)
         return existing.get(_LAB_PGRAM_SHEET, 0), trench_tab_ids
 
     except Exception as e:
         _log_error(f"_ensure_sheets failed: {e}")
         return 0, {}
+
+
+def _migrate_su_columns(svc, sid: str, trench_tab_ids: dict[str, int]) -> None:
+    """Relocate the 'Ready for SU Sheet' column to SU_READY_SHEET (between Volume
+    Created and SU Sheet Created) if an older layout has it elsewhere.
+
+    Idempotent and data-preserving: moveDimension carries the whole column (values +
+    checkbox validation) with it. Runs before any positional read (via _ensure_sheets
+    at startup / full_sync) so reads never misinterpret a stale physical layout.
+    """
+    requests = []
+    for tab, tab_id in trench_tab_ids.items():
+        if not tab_id:
+            continue
+        header = _read_range(f"{tab}!1:1")
+        if not header or not header[0]:
+            continue
+        try:
+            cur = header[0].index("Ready for SU Sheet")
+        except ValueError:
+            continue  # column not present yet — full_sync will add it in place
+        if cur == SU_READY_SHEET:
+            continue
+        # moveDimension destinationIndex is in pre-move coordinates: moving left
+        # (cur > target) inserts at the target; moving right needs the +1 shift.
+        dest = SU_READY_SHEET if cur > SU_READY_SHEET else SU_READY_SHEET + 1
+        requests.append({
+            "moveDimension": {
+                "source": {"sheetId": tab_id, "dimension": "COLUMNS",
+                           "startIndex": cur, "endIndex": cur + 1},
+                "destinationIndex": dest,
+            }
+        })
+    if not requests:
+        return
+    try:
+        _execute(svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={"requests": requests}))
+        _invalidate_su_cache()
+        logger.info(f"_migrate_su_columns: relocated Ready-for-SU-Sheet column in {len(requests)} tab(s)")
+    except Exception as e:
+        _log_error(f"_migrate_su_columns failed (non-fatal): {e}")
 
 
 def _apply_sheet_style(svc, sid: str, sheet_id: int, num_cols: int, bool_cols: list[int]):
@@ -454,7 +497,7 @@ def _su_header() -> list:
     return [
         "SU ID", "Top Pgram", "Bottom Pgram",
         "Volume Stage",
-        "Volume Created", "SU Sheet Created",
+        "Volume Created", "Ready for SU Sheet", "SU Sheet Created",
         "Uploaded to AIR",
         "Notes", "Last Updated (CET)", "Snip Method",
     ]
@@ -494,6 +537,7 @@ def _su_to_row(entry: SUEntry) -> list:
         bot,
         entry.stage,
         vol,
+        bool(getattr(entry, "ready_for_sheet", False)),
         sheet,
         air,
         entry.notes,
@@ -598,6 +642,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
         if isinstance(notes, bool) or str(notes).upper() in ("TRUE", "FALSE"):
             notes = ""
         snip_method = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
+        ready_for_sheet = _bool(row[SU_READY_SHEET]) if len(row) > SU_READY_SHEET else False
         result.append({
             "su_id": row[SU_ID],
             "top_pgram": str(row[SU_TOP_PGRAM]),
@@ -607,6 +652,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
             "notes": notes,
             "last_updated": row[SU_UPDATED],
             "snip_method": snip_method,
+            "ready_for_sheet": ready_for_sheet,
         })
     return result
 
@@ -655,7 +701,7 @@ def get_su_rows() -> list[dict]:
     if not is_available():
         return []
 
-    ranges = [f"{tab}!A:J" for tab in _SU_TRENCH_TABS]
+    ranges = [f"{tab}!A:K" for tab in _SU_TRENCH_TABS]
     all_rows = _batch_read_ranges(ranges)
 
     if all_rows is None:
@@ -773,7 +819,7 @@ def upsert_su(entry: SUEntry):
     if not tab:
         _log_error(f"upsert_su: cannot determine tab for SU {entry.su_id}")
         return
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError(f"Google Sheets read failed during upsert_su ({tab})")
     data = rows[1:] if len(rows) > 1 else []
@@ -783,7 +829,7 @@ def upsert_su(entry: SUEntry):
         while len(row) < SU_COLS:
             row.append("")
         if row[SU_ID] == entry.su_id:
-            _write_range(f"{tab}!A{i + 2}:H{i + 2}", [new_row])
+            _write_range(f"{tab}!A{i + 2}:K{i + 2}", [new_row])
             _invalidate_su_cache()
             return
 
@@ -801,7 +847,7 @@ def update_su_stage(su_id: str, stage: str, snip_method: Optional[str] = None):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     vol, sheet, air = _su_checkboxes(stage)
@@ -811,9 +857,12 @@ def update_su_stage(su_id: str, stage: str, snip_method: Optional[str] = None):
                 row.append("")
             existing_snip = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
             write_snip = snip_method if snip_method is not None else existing_snip
+            # Ready-for-sheet (col F) sits inside this D:K block, so preserve its
+            # current value — advancing a stage must not toggle the checkbox.
+            existing_ready = _bool(row[SU_READY_SHEET]) if len(row) > SU_READY_SHEET else False
             _write_range(
-                f"{tab}!D{i}:J{i}",
-                [[stage, vol, sheet, air,
+                f"{tab}!D{i}:K{i}",
+                [[stage, vol, existing_ready, sheet, air,
                   row[SU_NOTES] if len(row) > SU_NOTES else "",
                   cet_now(), write_snip]],
             )
@@ -828,7 +877,7 @@ def update_su_pgrams(su_id: str, top_pgram: str, bot_pgram: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     top = int(top_pgram) if str(top_pgram).isdigit() else (top_pgram or "")
@@ -841,18 +890,89 @@ def update_su_pgrams(su_id: str, top_pgram: str, bot_pgram: str):
     raise ValueError(f"SU {su_id} not found in {tab}")
 
 
+def delete_su(su_id: str, trench: str = "") -> bool:
+    """Delete an SU row from its trench tab. Returns True if a row was removed.
+
+    Physically removes the row (deleteDimension) rather than blanking it, so no
+    empty gap is left behind in the tab.
+    """
+    if not is_available():
+        raise RuntimeError("Google Sheets is unavailable")
+    tab = _su_tab_for(su_id, trench)
+    if not tab:
+        raise ValueError(f"Cannot determine trench tab for SU {su_id}")
+    svc = _get_service()
+    if svc is None:
+        raise RuntimeError("Google Sheets is unavailable")
+    sid = get_config().gsheets_spreadsheet_id
+
+    sheet_id = None
+    try:
+        meta = _execute(svc.spreadsheets().get(spreadsheetId=sid))
+    except Exception as e:
+        _log_error(f"delete_su({su_id}) meta read failed: {e}")
+        raise
+    for s in meta.get("sheets", []):
+        if s["properties"]["title"] == tab:
+            sheet_id = s["properties"]["sheetId"]
+            break
+    if sheet_id is None:
+        raise ValueError(f"Tab {tab} not found")
+
+    rows = _read_range(f"{tab}!A:K")
+    if rows is None:
+        raise RuntimeError("Google Sheets read failed during delete_su")
+    # enumerate from 1 so `i` is the 0-based sheet row index (header is row 0).
+    for i, row in enumerate(rows[1:], start=1):
+        if row and row[0] == su_id:
+            _execute(svc.spreadsheets().batchUpdate(
+                spreadsheetId=sid,
+                body={"requests": [{
+                    "deleteDimension": {
+                        "range": {"sheetId": sheet_id, "dimension": "ROWS",
+                                  "startIndex": i, "endIndex": i + 1},
+                    }
+                }]},
+            ))
+            _invalidate_su_cache()
+            return True
+    return False
+
+
 def update_su_notes(su_id: str, notes: str):
     if not is_available():
         raise RuntimeError("Google Sheets is unavailable")
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:J")
+    rows = _read_range(f"{tab}!A:K")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
         if row and row[0] == su_id:
-            _write_range(f"{tab}!H{i}:I{i}", [[notes, cet_now()]])
+            _write_range(f"{tab}!I{i}:J{i}", [[notes, cet_now()]])
+            _invalidate_su_cache()
+            return
+    raise ValueError(f"SU {su_id} not found in {tab}")
+
+
+def update_su_ready_for_sheet(su_id: str, ready: bool):
+    """Set the 'Ready for SU Sheet' checkbox (col F) for an SU entry.
+
+    Only touches col F so it never disturbs the stage/notes/timestamp columns —
+    the Create-SU-Sheet run reads this flag to pick which Volume Created cards to process.
+    """
+    if not is_available():
+        raise RuntimeError("Google Sheets is unavailable")
+    tab = _su_tab_for(su_id)
+    if not tab:
+        raise ValueError(f"Cannot determine trench tab for SU {su_id}")
+    rows = _read_range(f"{tab}!A:K")
+    if rows is None:
+        raise RuntimeError("Google Sheets read timed out")
+    for i, row in enumerate(rows[1:], start=2):
+        if row and row[0] == su_id:
+            _write_range(f"{tab}!F{i}:F{i}", [[bool(ready)]])
             _invalidate_su_cache()
             return
     raise ValueError(f"SU {su_id} not found in {tab}")
@@ -905,11 +1025,11 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
         trench = tab.replace("Trench ", "")
         entries = entries_by_trench.get(trench, [])
         su_rows = [_su_header()] + [_su_to_row(e) for e in entries]
-        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:J"))
+        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:K"))
         _write_range(f"{tab}!A1", su_rows)
         tab_id = trench_tab_ids.get(tab, 0)
         if tab_id:
-            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR])  # SU_COLS = 10
+            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR, SU_READY_SHEET])
 
     _invalidate_pgram_cache()
     _invalidate_su_cache()
