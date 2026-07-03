@@ -90,6 +90,20 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
     }
   }
 
+  async function handleAutoSnipOne(e: React.MouseEvent) {
+    e.stopPropagation()
+    setActionLoading('autosnip')
+    try {
+      await startVolumeRun('auto_snip', entry.su_id)
+      toast(`Started auto-snip on SU ${entry.su_id}…`, 'info')
+      onRunStarted?.()
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to start auto-snip', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   async function handleFlagToggle(e: React.MouseEvent) {
     e.stopPropagation()
     const next = !entry.flagged
@@ -268,6 +282,19 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
             onClick={(e) => handleAction(e, 'lidar', () => openLidar(entry.su_id))}
           >
             {actionLoading === 'lidar' ? '…' : 'LiDAR ↗'}
+          </button>
+        )}
+
+        {stage === 'to_be_snipped' && entry.has_lidar && (
+          <button
+            style={{ ...actionBtn, borderColor: '#ec489966', color: '#f472b6' }}
+            disabled={busy || runActive}
+            title={runActive
+              ? 'A volume run is already in progress'
+              : `Run auto-snip on just this SU (${entry.su_id}) — moves it to To Be Post-Snipped`}
+            onClick={handleAutoSnipOne}
+          >
+            {actionLoading === 'autosnip' ? '…' : 'Auto-Snip →'}
           </button>
         )}
 
