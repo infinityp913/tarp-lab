@@ -82,6 +82,92 @@ def _read_progress() -> Optional[tuple[int, int]]:
         return None
 
 
+# --- cross-process run lock -------------------------------------------------
+# The in-memory `_state["active"]` guard only prevents concurrent runs within one
+# backend process. A lockfile holding the launched script's PID also blocks a
+# second run after a backend restart, when the previous worker is orphaned but
+# still churning — launching another CloudCompare process then would collide.
+_LOCK_NAME = ".volume_run.lock"
+
+
+def _lock_path(cfg) -> Optional[Path]:
+    d = cfg.volume_script_dir or cfg.create_su_sheet_dir
+    return Path(d) / _LOCK_NAME if d else None
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if a process with `pid` is currently running. Cross-platform, no psutil."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        SYNCHRONIZE = 0x00100000
+        WAIT_TIMEOUT = 0x00000102
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not handle:
+            return False  # no such process (or gone)
+        try:
+            # Signalled (0) means the process has exited; WAIT_TIMEOUT means alive.
+            return k32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but owned by another user
+    return True
+
+
+def _active_lock(cfg) -> Optional[dict]:
+    """Return the lock's data if a prior run's process is still alive; otherwise
+    clear a stale/unreadable lock and return None."""
+    import json
+
+    p = _lock_path(cfg)
+    if p is None or not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text())
+        pid = int(data.get("pid", 0))
+    except (OSError, ValueError, TypeError):
+        data, pid = None, 0
+    if data is not None and _pid_alive(pid):
+        return data
+    try:
+        p.unlink()  # stale — the launching process is gone
+    except OSError:
+        pass
+    return None
+
+
+def _write_lock(cfg, kind: str, pid: int) -> None:
+    import json
+
+    p = _lock_path(cfg)
+    if p is None:
+        return
+    try:
+        p.write_text(json.dumps({"pid": pid, "kind": kind, "started_at": _now()}))
+    except OSError as e:
+        _log(f"  could not write run lock: {e}")
+
+
+def _clear_lock(cfg) -> None:
+    p = _lock_path(cfg)
+    if p is None:
+        return
+    try:
+        p.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _log(f"  could not clear run lock: {e}")
+
+
 def _log(msg: str) -> None:
     logger.info(msg)
     try:
@@ -266,6 +352,13 @@ def start_run(kind: str, su_id: Optional[str] = None) -> dict:
         if _state["active"]:
             return {"started": False, "error": "A volume run is already in progress."}
 
+        held = _active_lock(get_config())
+        if held:
+            return {"started": False,
+                    "error": f"Another volume script (pid {held.get('pid')}, "
+                             f"'{held.get('kind')}', started {held.get('started_at')}) is still "
+                             f"running. Wait for it to finish or stop that process first."}
+
         err = _validate(kind)
         if err:
             return {"started": False, "error": err}
@@ -358,18 +451,21 @@ def _worker(kind: str, cards: list[dict]) -> None:
 
     _log(f"launching: {' '.join(cmd)} (cwd: {cwd})")
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, cwd=cwd, env=env)
     except Exception as e:
         _finish(False, str(e), 0)
         return
+    _write_lock(cfg, kind, proc.pid)
+    stdout, stderr = proc.communicate()
 
     # Persist the script's own stdout/stderr to the log. subprocess output is piped
     # (not inherited), so without this the per-SU detail lines — e.g. the top-mesh
     # distance-trim threshold used for tuning — are lost on a successful run.
-    _log_script_output(kind, proc.stdout, proc.stderr)
+    _log_script_output(kind, stdout, stderr)
 
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
+        detail = (stderr or stdout or "").strip()
         _finish(False, detail[-800:] if detail else f"Script exited with code {proc.returncode}", 0)
         return
 
@@ -415,6 +511,7 @@ def _finish(ok: bool, error: Optional[str], advanced: int, skipped: int = 0) -> 
         if ok and _state["total"]:
             _state["processed"] = _state["total"]
     _progress_path = None
+    _clear_lock(get_config())
 
 
 def start_chain_run() -> dict:
@@ -424,6 +521,13 @@ def start_chain_run() -> dict:
     with _lock:
         if _state["active"]:
             return {"started": False, "error": "A volume run is already in progress."}
+
+        held = _active_lock(get_config())
+        if held:
+            return {"started": False,
+                    "error": f"Another volume script (pid {held.get('pid')}, "
+                             f"'{held.get('kind')}', started {held.get('started_at')}) is still "
+                             f"running. Wait for it to finish or stop that process first."}
 
         for kind in ("pre_snip", "auto_snip", "post_snip"):
             err = _validate(kind)
@@ -521,13 +625,17 @@ def _chain_worker(
 
         _log(f"chain step {step_num} ({kind}): launching {' '.join(cmd)} on {len(cards)} card(s)")
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, cwd=cwd, env=env)
         except Exception as e:
             _finish(False, f"Step {step_num} ({kind}) failed to launch: {e}", total_advanced)
             return
+        _write_lock(cfg, kind, proc.pid)
+        stdout, stderr = proc.communicate()
+        _log_script_output(kind, stdout, stderr)
 
         if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()
+            detail = (stderr or stdout or "").strip()
             _finish(False, f"Step {step_num} ({kind}): " + (detail[-800:] if detail else f"exit code {proc.returncode}"), total_advanced)
             return
 
