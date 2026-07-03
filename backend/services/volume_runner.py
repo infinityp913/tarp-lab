@@ -218,18 +218,21 @@ def _exists(path: str) -> bool:
         return False
 
 
-def _write_input_json(cards: list[dict], script_dir: str) -> int:
+def _write_input_json(cards: list[dict], script_dir: str, dedupe: bool = True) -> int:
     """Write input.json for the volume scripts from the given SU cards.
 
     Each card must have a digit top_pgram and bot_pgram; cards missing either
-    are skipped (logged). Returns the number of pairs written.
+    are skipped (logged). Returns the number of entries written.
 
-    Pairs are de-duplicated by (top, bottom): the snip scripts key their output
-    on the top pgram, so multiple SU cards sharing the same pgram pair (common
-    with SU ranges) would otherwise re-run the same expensive cloud-to-cloud
-    computation and overwrite the same output — roughly doubling runtime for no
-    gain. Only the compute input is de-duped; card advancement in _worker still
+    When `dedupe` is True, pairs are de-duplicated by (top, bottom): SU cards
+    sharing a pgram pair collapse to the first (kept) SU, so the same expensive
+    cloud-to-cloud computation runs once. Card advancement in _worker still
     iterates every card, so all SUs advance regardless.
+
+    When `dedupe` is False (pre_snip), every SU is written as its own entry so the
+    script produces a Data/SU<su>/ folder for each. The script caches the per-pair
+    distance computation, so a shared pgram pair is still computed only once — no
+    recompute, but every SU gets its own folder.
     """
     import json
 
@@ -246,16 +249,23 @@ def _write_input_json(cards: list[dict], script_dir: str) -> int:
         key = (top, bot)
         if key in seen:
             duplicates.append(f"{su or '?'}->{seen[key] or '?'}")
-            continue
-        seen[key] = su
+            if dedupe:
+                continue
+        else:
+            seen[key] = su
         pairs.append({"top": top, "bottom": bot, "su": su})
 
     dest = Path(script_dir) / "input.json"
     dest.write_text(json.dumps(pairs, indent=2))
     if duplicates:
-        _log(f"  collapsed {len(duplicates)} duplicate pgram pair(s) "
-             f"(SU->kept SU): {', '.join(duplicates)}")
-    _log(f"  wrote {len(pairs)} unique pair(s) to {dest}")
+        if dedupe:
+            _log(f"  collapsed {len(duplicates)} duplicate pgram pair(s) "
+                 f"(SU->kept SU): {', '.join(duplicates)}")
+        else:
+            _log(f"  {len(duplicates)} SU(s) share a pgram pair with another "
+                 f"(SU->shares with): {', '.join(duplicates)} — each gets its own "
+                 f"folder; the shared pair is computed once")
+    _log(f"  wrote {len(pairs)} entr{'y' if len(pairs) == 1 else 'ies'} to {dest}")
     return len(pairs)
 
 
@@ -426,7 +436,13 @@ def _prepare_run(kind: str, script: str, cards: list[dict], cfg) -> tuple[list[s
         # bottom_demcorr needs the bottom job's GeoTIFF DEM staged into Data/DEMs/.
         _stage_autosnip_dems(cards, cfg)
     else:
-        count = _write_input_json(cards, cfg.volume_script_dir)
+        # Both snip scripts run one entry per SU (dedupe=False) so every SU gets its
+        # own output:
+        #  - pre_snip caches each pgram pair's distance computation, so a shared pair
+        #    is computed once but written into every SU's own Data/SU<su>/ folder.
+        #  - post_snip reads each SU's own snip bin, so its volumes are genuinely
+        #    per-SU; SUs with no bin on disk are skipped by the script.
+        count = _write_input_json(cards, cfg.volume_script_dir, dedupe=False)
     env = _cloudcompy_env(cfg)
     if env is not None and cfg.overnight_output_assets_root:
         # Tell pre_snip/auto_snip where the overnight-exported PLY meshes live, instead

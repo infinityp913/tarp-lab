@@ -119,6 +119,34 @@ def test_write_input_json_dedupes_repeated_pgram_pairs(tmp_path):
     ]
 
 
+def test_write_input_json_no_dedupe_keeps_every_su(tmp_path):
+    # The snip scripts pass dedupe=False: SUs sharing a pgram pair each keep their
+    # own entry so every SU gets its own output (pre_snip a Data/SU<su>/ folder,
+    # post_snip a per-SU volume). A genuinely different pair is preserved too.
+    cards = [
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21002"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21003"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21004"},
+        {"top_pgram": "816", "bot_pgram": "819", "su_id": "21010"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path), dedupe=False)
+    assert count == 4
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert [d["su"] for d in data] == ["21002", "21003", "21004", "21010"]
+
+
+def test_write_input_json_no_dedupe_still_skips_invalid_pgrams(tmp_path):
+    cards = [
+        {"top_pgram": "abc", "bot_pgram": "456", "su_id": "20001"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21002"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21003"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path), dedupe=False)
+    assert count == 2
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert [d["su"] for d in data] == ["21002", "21003"]
+
+
 def test_write_input_json_dedupe_is_order_sensitive_on_swapped_pairs(tmp_path):
     # (top, bottom) is directional — a swapped pair is a different computation
     # and must NOT be collapsed.
