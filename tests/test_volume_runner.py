@@ -131,6 +131,137 @@ def test_write_input_json_dedupe_is_order_sensitive_on_swapped_pairs(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _write_autosnip_input
+# ---------------------------------------------------------------------------
+
+def _patch_usdz(monkeypatch, mapping):
+    """Stub find_usdz_for_su so _write_autosnip_input maps su_id → USDZ path(s)."""
+    from pathlib import Path
+    import backend.services.volume as volume
+
+    def fake(su_id):
+        return [Path(p) for p in mapping.get(str(su_id), [])]
+
+    monkeypatch.setattr(volume, "find_usdz_for_su", fake)
+
+
+def test_write_autosnip_input_emits_annotations(tmp_path, monkeypatch):
+    _patch_usdz(monkeypatch, {"20005": [r"C:\scans\tarpf1-SU_20005.usdz"]})
+    cards = [{"top_pgram": "789", "bot_pgram": "790", "su_id": "20005"}]
+    count = volume_runner._write_autosnip_input(cards, str(tmp_path))
+    assert count == 1
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data == [{
+        "top": "789", "bottom": "790", "su": "20005",
+        "annotations": [r"C:\scans\tarpf1-SU_20005.usdz"],
+    }]
+
+
+def test_write_autosnip_input_skips_cards_without_usdz(tmp_path, monkeypatch):
+    _patch_usdz(monkeypatch, {"20005": [r"C:\scans\a-SU_20005.usdz"]})  # 20006 has none
+    cards = [
+        {"top_pgram": "789", "bot_pgram": "790", "su_id": "20005"},
+        {"top_pgram": "791", "bot_pgram": "792", "su_id": "20006"},
+    ]
+    count = volume_runner._write_autosnip_input(cards, str(tmp_path))
+    assert count == 1
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert [j["su"] for j in data] == ["20005"]
+
+
+def test_write_autosnip_input_skips_invalid_pgrams(tmp_path, monkeypatch):
+    _patch_usdz(monkeypatch, {"20005": [r"C:\scans\a-SU_20005.usdz"]})
+    cards = [{"top_pgram": "abc", "bot_pgram": "790", "su_id": "20005"}]
+    count = volume_runner._write_autosnip_input(cards, str(tmp_path))
+    assert count == 0
+
+
+def test_write_autosnip_input_dedupes_by_usdz(tmp_path, monkeypatch):
+    # A single USDZ covering several SUs (each card resolves to the same scan) is
+    # snipped once, so the shared scan collapses to one job — not one per card.
+    shared = r"C:\scans\tarpf9-SU_22044_22045.usdz"
+    _patch_usdz(monkeypatch, {"22044": [shared], "22045": [shared]})
+    cards = [
+        {"top_pgram": "786", "bot_pgram": "787", "su_id": "22044"},
+        {"top_pgram": "786", "bot_pgram": "787", "su_id": "22045"},
+    ]
+    count = volume_runner._write_autosnip_input(cards, str(tmp_path))
+    assert count == 1
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data[0]["annotations"] == [shared]
+
+
+# ---------------------------------------------------------------------------
+# _stage_autosnip_dems
+# ---------------------------------------------------------------------------
+
+def _cfg_for_dems(tmp_path):
+    """Assets root with PLY/ + DEM/ subfolders and a separate script working dir."""
+    import types
+
+    assets = tmp_path / "assets"
+    (assets / "PLY").mkdir(parents=True)
+    (assets / "DEM").mkdir(parents=True)
+    script = tmp_path / "script"
+    script.mkdir()
+    return types.SimpleNamespace(
+        overnight_output_assets_root=str(assets),
+        volume_script_dir=str(script),
+    ), assets, script
+
+
+def test_stage_autosnip_dems_copies_bottom_dem(tmp_path, monkeypatch):
+    _patch_usdz(monkeypatch, {"20005": [r"C:\scans\a-SU_20005.usdz"]})
+    cfg, assets, script = _cfg_for_dems(tmp_path)
+    # DEM is keyed on the BOTTOM pgram (790), named to match the bottom PLY basename.
+    (assets / "PLY" / "Pgram_Job_790_SU20005.ply").write_text("ply")
+    (assets / "DEM" / "Pgram_Job_790_SU20005_dem.tif").write_bytes(b"demdata")
+
+    cards = [{"top_pgram": "789", "bot_pgram": "790", "su_id": "20005"}]
+    staged, missing = volume_runner._stage_autosnip_dems(cards, cfg)
+
+    assert (staged, missing) == (1, [])
+    out = script / "Data" / "DEMs" / "Pgram_Job_790_SU20005_dem.tif"
+    assert out.read_bytes() == b"demdata"
+
+
+def test_stage_autosnip_dems_dedupes_by_bottom_pgram(tmp_path, monkeypatch):
+    shared = r"C:\scans\s-SU_22044_22045.usdz"
+    _patch_usdz(monkeypatch, {"22044": [shared], "22045": [shared]})
+    cfg, assets, script = _cfg_for_dems(tmp_path)
+    (assets / "PLY" / "Pgram_Job_787_SU22044-22045.ply").write_text("ply")
+    (assets / "DEM" / "Pgram_Job_787_SU22044-22045_dem.tif").write_bytes(b"d")
+
+    cards = [
+        {"top_pgram": "786", "bot_pgram": "787", "su_id": "22044"},
+        {"top_pgram": "786", "bot_pgram": "787", "su_id": "22045"},
+    ]
+    staged, missing = volume_runner._stage_autosnip_dems(cards, cfg)
+    assert (staged, missing) == (1, [])
+
+
+def test_stage_autosnip_dems_reports_missing_dem(tmp_path, monkeypatch):
+    _patch_usdz(monkeypatch, {"20005": [r"C:\scans\a-SU_20005.usdz"]})
+    cfg, assets, script = _cfg_for_dems(tmp_path)
+    (assets / "PLY" / "Pgram_Job_790_SU20005.ply").write_text("ply")  # PLY but no DEM
+
+    cards = [{"top_pgram": "789", "bot_pgram": "790", "su_id": "20005"}]
+    staged, missing = volume_runner._stage_autosnip_dems(cards, cfg)
+    assert (staged, missing) == (0, ["790"])
+
+
+def test_stage_autosnip_dems_skips_cards_without_usdz(tmp_path, monkeypatch):
+    _patch_usdz(monkeypatch, {})  # no card has a USDZ → nothing to snip, nothing to stage
+    cfg, assets, script = _cfg_for_dems(tmp_path)
+    (assets / "PLY" / "Pgram_Job_790_SU20005.ply").write_text("ply")
+    (assets / "DEM" / "Pgram_Job_790_SU20005_dem.tif").write_bytes(b"d")
+
+    cards = [{"top_pgram": "789", "bot_pgram": "790", "su_id": "20005"}]
+    staged, missing = volume_runner._stage_autosnip_dems(cards, cfg)
+    assert (staged, missing) == (0, [])
+
+
+# ---------------------------------------------------------------------------
 # cross-process run lock
 # ---------------------------------------------------------------------------
 

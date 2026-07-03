@@ -8,6 +8,7 @@ Only one volume script run is allowed at a time.
 
 import logging
 import os
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -15,7 +16,7 @@ from typing import Optional
 
 from backend.config import LOG_PATH, get_config
 from backend.services import gsheets
-from backend.services.filesystem import find_su_sheet_pdf_for_su
+from backend.services.filesystem import find_debug_image_for_su, find_su_sheet_pdf_for_su
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +259,129 @@ def _write_input_json(cards: list[dict], script_dir: str) -> int:
     return len(pairs)
 
 
+def _write_autosnip_input(cards: list[dict], script_dir: str) -> int:
+    """Write input.json for auto_snip_script.py from the given SU cards.
+
+    Unlike pre/post-snip, auto_snip is annotation-driven: it skips any job with no
+    `annotations`, and keys its output on the SU (not the top pgram). Each card's
+    annotation is its LiDAR USDZ scan, located via find_usdz_for_su() — the same
+    signal that gates readiness (has_lidar).
+
+    Emits {"top", "bottom", "su", "annotations": [<abs usdz path>]} per unique scan.
+    De-dup is by USDZ path, not (top, bottom): a single USDZ may cover several SUs
+    and the script snips that whole painted region once, so processing it more than
+    once is wasted work producing identical output. Cards with a non-digit pgram or
+    no USDZ on disk are skipped (logged) — they stay in To Be Snipped for manual
+    handling. Returns the number of jobs written.
+    """
+    import json
+
+    from backend.services.volume import find_usdz_for_su
+
+    jobs: list[dict] = []
+    seen_usdz: set[str] = set()
+    no_lidar: list[str] = []
+    for card in cards:
+        top = str(card.get("top_pgram", ""))
+        bot = str(card.get("bot_pgram", ""))
+        su = str(card.get("su_id", ""))
+        if not (top.isdigit() and bot.isdigit()):
+            _log(f"  skip {su or '?'}: missing/invalid pgrams (top={top!r}, bot={bot!r})")
+            continue
+        usdzs = find_usdz_for_su(su)
+        if not usdzs:
+            no_lidar.append(su or "?")
+            continue
+        for usdz in usdzs:
+            key = str(usdz)
+            if key in seen_usdz:
+                continue
+            seen_usdz.add(key)
+            jobs.append({"top": top, "bottom": bot, "su": su, "annotations": [key]})
+
+    dest = Path(script_dir) / "input.json"
+    dest.write_text(json.dumps(jobs, indent=2))
+    if no_lidar:
+        _log(f"  skipped {len(no_lidar)} card(s) with no LiDAR USDZ: {', '.join(no_lidar)}")
+    _log(f"  wrote {len(jobs)} auto-snip job(s) to {dest}")
+    return len(jobs)
+
+
+def _stage_autosnip_dems(cards: list[dict], cfg) -> tuple[int, list[str]]:
+    """Copy each card's BOTTOM-pgram GeoTIFF DEM into the auto-snip working dir.
+
+    auto_snip_script.py's bottom_demcorr registration is now the authoritative crop
+    method and *requires* a GeoTIFF DEM for the bottom PLY job: it reads
+    <volume_script_dir>/Data/DEMs/<bottom_id>_dem.tif, where bottom_id is the bottom
+    PLY's basename (from find_mesh_by_pgram_job), and skips the SU if it is absent.
+
+    The overnight export writes the DEM alongside the PLY under <assets>/DEM with a
+    matching basename (Pgram_Job_<n>_SU..._dem.tif ↔ Pgram_Job_<n>_SU....ply), so we
+    resolve the bottom PLY basename from <assets>/PLY and copy <assets>/DEM/<base>_dem.tif
+    to Data/DEMs/<base>_dem.tif — the exact name the script builds. Gated the same way
+    as _write_autosnip_input (digit pgrams + a LiDAR USDZ on disk) and de-duped by
+    bottom pgram, since one DEM serves every SU sharing that bottom job.
+
+    Returns (staged_count, [bottom pgrams with no DEM staged]). Missing DEMs are logged,
+    not fatal — the script will report and skip those SUs.
+    """
+    from backend.services.volume import find_usdz_for_su
+
+    assets = cfg.overnight_output_assets_root
+    if not assets:
+        _log("  DEM staging skipped: scripts.overnight_output_assets_root not set")
+        return 0, []
+    ply_dir = Path(assets) / "PLY"
+    src_dem_dir = Path(assets) / "DEM"
+    dst_dem_dir = Path(cfg.volume_script_dir) / "Data" / "DEMs"
+
+    staged = 0
+    missing: list[str] = []
+    seen: set[str] = set()
+    for card in cards:
+        bot = str(card.get("bot_pgram", "")).strip()
+        top = str(card.get("top_pgram", "")).strip()
+        su = str(card.get("su_id", "")).strip()
+        if not (top.isdigit() and bot.isdigit()) or bot in seen:
+            continue
+        if not find_usdz_for_su(su):
+            continue  # card won't be in input.json, so no DEM is needed for it
+        seen.add(bot)
+
+        # Resolve the bottom PLY basename the way the script does (Pgram_Job_<n>).
+        plys = sorted(ply_dir.glob(f"Pgram_Job_{bot}*.ply")) if ply_dir.is_dir() else []
+        if not plys:
+            missing.append(bot)
+            continue
+        base = plys[0].stem
+
+        src = src_dem_dir / f"{base}_dem.tif"
+        if not src.is_file():
+            # Fall back to matching on the pgram number if the DEM basename has drifted.
+            alts = (sorted(src_dem_dir.glob(f"Pgram_Job_{bot}_*_dem.tif"))
+                    if src_dem_dir.is_dir() else [])
+            src = alts[0] if alts else None
+        if src is None or not src.is_file():
+            missing.append(bot)
+            continue
+
+        dst = dst_dem_dir / f"{base}_dem.tif"
+        try:
+            dst_dem_dir.mkdir(parents=True, exist_ok=True)
+            if not (dst.is_file() and dst.stat().st_size == src.stat().st_size):
+                shutil.copy2(src, dst)
+            staged += 1
+        except OSError as e:
+            _log(f"  DEM copy failed for bottom pgram {bot}: {e}")
+            missing.append(bot)
+
+    if missing:
+        _log(f"  no DEM staged for {len(missing)} bottom pgram(s): {', '.join(missing)} "
+             f"(auto-snip will skip those SUs)")
+    _log(f"  staged {staged} DEM(s) into {dst_dem_dir}")
+    return staged, missing
+
+
 def _write_su_sheets_input(cards: list[dict], out_dir: str, year: int) -> int:
     """Write su_sheets_input.json for generate_su_sheets.py from the given SU cards.
 
@@ -295,7 +419,14 @@ def _prepare_run(kind: str, script: str, cards: list[dict], cfg) -> tuple[list[s
     if kind == "create_su_sheet":
         count = _write_su_sheets_input(cards, cfg.create_su_sheet_dir, cfg.season_year)
         return [cfg.qgis_launcher, script], cfg.create_su_sheet_dir, None, count
-    count = _write_input_json(cards, cfg.volume_script_dir)
+    if kind == "auto_snip":
+        # Auto-snip is annotation-driven — it needs each SU's LiDAR USDZ, and keys
+        # its output on the SU, so it uses a different input writer than pre/post-snip.
+        count = _write_autosnip_input(cards, cfg.volume_script_dir)
+        # bottom_demcorr needs the bottom job's GeoTIFF DEM staged into Data/DEMs/.
+        _stage_autosnip_dems(cards, cfg)
+    else:
+        count = _write_input_json(cards, cfg.volume_script_dir)
     env = _cloudcompy_env(cfg)
     if env is not None and cfg.overnight_output_assets_root:
         # Tell pre_snip/auto_snip where the overnight-exported PLY meshes live, instead
@@ -425,7 +556,52 @@ def _cloudcompy_env(cfg) -> Optional[dict]:
     env = os.environ.copy()
     env["PYTHONPATH"] = sep.join(p for p in (cc, pyapi, env.get("PYTHONPATH", "")) if p)
     env["PATH"] = sep.join(p for p in (cc, root, plugins, env.get("PATH", "")) if p)
+    # Force UTF-8 for the child's stdout/stderr. We pipe its output, so without this
+    # Python falls back to the Windows locale codec (cp1252); a script print() with a
+    # non-cp1252 char (e.g. '→' in auto_snip's process_usdz) then raises
+    # UnicodeEncodeError, which the script swallows as a per-SU failure — silently
+    # skipping every card. UTF-8 mode makes those prints (and our reads) safe.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    # Make usdcat (OpenUSD CLI) available to auto_snip's USDZ→USDA subprocess. usdcat
+    # lives in a separate conda env and only resolves its DLLs with that env's standard
+    # activation dirs on PATH. Append them AFTER CloudCompare's entries so CloudComPy's
+    # own Qt/TBB DLLs still win for `import cloudComPy` in this process; usdcat.exe runs
+    # as a separate child and loads its co-located DLLs from its own dir first.
+    usd_root = cfg.usd_env_root
+    if usd_root and Path(usd_root).is_dir():
+        usd_dirs = [
+            usd_root,
+            os.path.join(usd_root, "Library", "mingw-w64", "bin"),
+            os.path.join(usd_root, "Library", "usr", "bin"),
+            os.path.join(usd_root, "Library", "bin"),
+            os.path.join(usd_root, "Scripts"),
+            os.path.join(usd_root, "bin"),
+        ]
+        env["PATH"] = sep.join([env["PATH"], *usd_dirs])
     return env
+
+
+def _run_capture(cmd: list[str], cwd: str, env: Optional[dict], cfg, kind: str) -> tuple[int, str, str]:
+    """Launch a volume script, wait for it, and return (returncode, stdout, stderr).
+
+    Output is captured to temp FILES, not pipes. CloudCompare's Qt JsonRPC plugin can
+    leave a grandchild process alive that inherits our stdout/stderr pipe handles;
+    proc.communicate() then blocks forever waiting for pipe-EOF even after the script
+    itself exited and wrote all its output — wedging the run in 'active' on success.
+    Writing to files lets proc.wait() return as soon as the script process exits,
+    regardless of any lingering grandchild. The child emits UTF-8 (PYTHONUTF8 in env);
+    we decode with errors='replace'. The run lock is written once the pid is known.
+    """
+    import tempfile
+
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(cmd, stdout=out, stderr=err, cwd=cwd, env=env)
+        _write_lock(cfg, kind, proc.pid)
+        proc.wait()
+        out.seek(0)
+        err.seek(0)
+        return proc.returncode, out.read().decode("utf-8", "replace"), err.read().decode("utf-8", "replace")
 
 
 def _worker(kind: str, cards: list[dict]) -> None:
@@ -451,22 +627,19 @@ def _worker(kind: str, cards: list[dict]) -> None:
 
     _log(f"launching: {' '.join(cmd)} (cwd: {cwd})")
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, cwd=cwd, env=env)
+        returncode, stdout, stderr = _run_capture(cmd, cwd, env, cfg, kind)
     except Exception as e:
         _finish(False, str(e), 0)
         return
-    _write_lock(cfg, kind, proc.pid)
-    stdout, stderr = proc.communicate()
 
-    # Persist the script's own stdout/stderr to the log. subprocess output is piped
-    # (not inherited), so without this the per-SU detail lines — e.g. the top-mesh
-    # distance-trim threshold used for tuning — are lost on a successful run.
+    # Persist the script's own stdout/stderr to the log — captured to temp files (see
+    # _run_capture), so without this the per-SU detail lines (trim thresholds, warnings)
+    # are lost on a successful run.
     _log_script_output(kind, stdout, stderr)
 
-    if proc.returncode != 0:
+    if returncode != 0:
         detail = (stderr or stdout or "").strip()
-        _finish(False, detail[-800:] if detail else f"Script exited with code {proc.returncode}", 0)
+        _finish(False, detail[-800:] if detail else f"Script exited with code {returncode}", 0)
         return
 
     # Script succeeded — advance cards from from_stage → to_stage in Sheets.
@@ -483,6 +656,12 @@ def _worker(kind: str, cards: list[dict]) -> None:
     for card in cards:
         su_id = card["su_id"]
         if kind == "create_su_sheet" and not find_su_sheet_pdf_for_su(su_id):
+            skipped.append(str(su_id))
+            continue
+        # auto_snip is best-effort per SU: a card with no LiDAR USDZ, or whose crop
+        # produced nothing, writes no snip reference. Leave those in To Be Snipped so
+        # the miss is visible, rather than advancing an un-snipped card.
+        if kind == "auto_snip" and not find_debug_image_for_su(su_id):
             skipped.append(str(su_id))
             continue
         try:
@@ -625,21 +804,23 @@ def _chain_worker(
 
         _log(f"chain step {step_num} ({kind}): launching {' '.join(cmd)} on {len(cards)} card(s)")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, cwd=cwd, env=env)
+            returncode, stdout, stderr = _run_capture(cmd, cwd, env, cfg, kind)
         except Exception as e:
             _finish(False, f"Step {step_num} ({kind}) failed to launch: {e}", total_advanced)
             return
-        _write_lock(cfg, kind, proc.pid)
-        stdout, stderr = proc.communicate()
         _log_script_output(kind, stdout, stderr)
 
-        if proc.returncode != 0:
+        if returncode != 0:
             detail = (stderr or stdout or "").strip()
-            _finish(False, f"Step {step_num} ({kind}): " + (detail[-800:] if detail else f"exit code {proc.returncode}"), total_advanced)
+            _finish(False, f"Step {step_num} ({kind}): " + (detail[-800:] if detail else f"exit code {returncode}"), total_advanced)
             return
 
         for card in cards:
+            # Same best-effort gate as the standalone run: don't advance an auto-snip
+            # card that produced no snip reference (no USDZ / empty crop).
+            if kind == "auto_snip" and not find_debug_image_for_su(card["su_id"]):
+                _log(f"chain step {step_num}: SU {card['su_id']} left in '{from_stage}' — no auto-snip output")
+                continue
             try:
                 gsheets.update_su_stage(card["su_id"], to_stage, snip_method=snip)
                 total_advanced += 1

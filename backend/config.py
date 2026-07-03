@@ -64,6 +64,10 @@ class Config:
         # envCloudComPy.bat). Used to set PYTHONPATH/PATH for the volume scripts so
         # `import cloudComPy` works without shell activation. Leave blank to disable.
         self.cloudcompy_root: str = scripts_cfg.get("cloudcompy_root", "")
+        # Conda env root providing usdcat.exe (OpenUSD CLI) for auto_snip's USDZ→USDA
+        # step. auto_snip shells out to `usdcat`; its DLLs only resolve with this env's
+        # activation dirs on PATH, so _cloudcompy_env appends them. Blank = disabled.
+        self.usd_env_root: str = scripts_cfg.get("usd_env_root", "")
         self.season_year: int = int(raw.get("season_year", 2026))
         trench_cfg = raw.get("current_year_trenches", {}) or {}
         self.current_year_trenches: tuple[int, int] = (

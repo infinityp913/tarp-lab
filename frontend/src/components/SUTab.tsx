@@ -447,8 +447,8 @@ export function SUTab() {
                     <GutterButton
                       label="Run All" sub="Pipeline" color="#6366f1"
                       icon="▶▶"
-                      disabled
-                      title="Pipeline run is disabled for now — it relies on auto-snip, which isn't reliable yet. Run each stage manually and snip in CloudCompare."
+                      disabled={runActive}
+                      title="Run the full pipeline: move ready cards → pre-snip → auto-snip → post-snip, then create SU sheets for cards checked ready"
                       onClick={handleChainRun}
                     />
                   </ActionGutter>
@@ -468,9 +468,9 @@ export function SUTab() {
                   <ActionGutter>
                     <GutterButton
                       label="Auto-Snip" sub="Script" color="#8b5cf6"
-                      disabled
+                      disabled={runActive || byStage('to_be_snipped').length === 0}
                       count={byStage('to_be_snipped').length}
-                      title="Auto-snip is disabled for now — the auto_snip_script.py isn't reliable yet. Manually snip in CloudCompare and drag the card to the next stage."
+                      title={`Run auto_snip_script.py on ${byStage('to_be_snipped').length} card(s) in To Be Snipped — crops each SU from its LiDAR annotation. Cards without a LiDAR scan stay put; snip them manually in CloudCompare.`}
                       onClick={() => handleVolumeRun('auto_snip')}
                     />
                   </ActionGutter>

@@ -240,8 +240,7 @@ def debug_image_exists(su_id: str):
     if not entry_data:
         raise HTTPException(status_code=404, detail=f"SU {su_id} not found")
 
-    top_pgram = str(entry_data.get("top_pgram", ""))
-    img = find_debug_image_for_su(su_id, top_pgram) if top_pgram.isdigit() else None
+    img = find_debug_image_for_su(su_id)
     return {"exists": img is not None, "path": str(img) if img else None}
 
 
@@ -253,8 +252,7 @@ def open_debug_image(su_id: str):
     if not entry_data:
         raise HTTPException(status_code=404, detail=f"SU {su_id} not found")
 
-    top_pgram = str(entry_data.get("top_pgram", ""))
-    img = find_debug_image_for_su(su_id, top_pgram) if top_pgram.isdigit() else None
+    img = find_debug_image_for_su(su_id)
     if not img:
         raise HTTPException(
             status_code=404,

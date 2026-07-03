@@ -479,3 +479,51 @@ def test_ignored_folders_multiple_stages(tmp_path, use_tmp_base):
     names = {f.name for f in result}
     assert "bad_a" in names
     assert "bad_b" in names
+
+
+# ─── find_debug_image_for_su ─────────────────────────────────────────────────
+
+def _make_debug_dir(tmp_path):
+    """Point volume_script_dir at tmp_path and create the Data/input snip folder."""
+    filesystem.get_config().volume_script_dir = str(tmp_path)
+    d = tmp_path / "Data" / "input"
+    d.mkdir(parents=True)
+    return d
+
+
+def test_find_debug_image_exact_su(tmp_path, use_tmp_base):
+    d = _make_debug_dir(tmp_path)
+    f = d / "debug_SU20005_snip_reference.png"
+    f.write_bytes(b"x")
+    assert filesystem.find_debug_image_for_su("20005") == f
+
+
+def test_find_debug_image_matches_su_in_range(tmp_path, use_tmp_base):
+    # A single USDZ covering several SUs names its snip reference with the whole
+    # range; each member SU must still find it.
+    d = _make_debug_dir(tmp_path)
+    f = d / "debug_SU22044-22048_snip_reference.png"
+    f.write_bytes(b"x")
+    assert filesystem.find_debug_image_for_su("22044") == f
+    assert filesystem.find_debug_image_for_su("22048") == f
+
+
+def test_find_debug_image_matches_nondigit_separated_name(tmp_path, use_tmp_base):
+    # Some USDZ scans yield an SU name with odd separators (prim '_20038__20050' →
+    # 'debug_SU20038;_20050_...'); each numeric token must still match.
+    d = _make_debug_dir(tmp_path)
+    f = d / "debug_SU20038;_20050_snip_reference.png"
+    f.write_bytes(b"x")
+    assert filesystem.find_debug_image_for_su("20038") == f
+    assert filesystem.find_debug_image_for_su("20050") == f
+
+
+def test_find_debug_image_none_when_su_absent(tmp_path, use_tmp_base):
+    d = _make_debug_dir(tmp_path)
+    (d / "debug_SU22044-22048_snip_reference.png").write_bytes(b"x")
+    assert filesystem.find_debug_image_for_su("99999") is None
+
+
+def test_find_debug_image_none_when_no_data_dir(tmp_path, use_tmp_base):
+    filesystem.get_config().volume_script_dir = str(tmp_path)  # no Data/ created
+    assert filesystem.find_debug_image_for_su("20005") is None

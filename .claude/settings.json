@@ -24,7 +24,9 @@
       "Bash(which *)",
       "Bash(brew *)",
       "Bash(curl *)",
-      "Bash(open *)"
+      "Bash(open *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)"
     ],
     "defaultMode": "bypassPermissions"
   },

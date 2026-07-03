@@ -53,6 +53,9 @@ scripts:
   volume_script_dir: "C:\\Users\\Photogrammetry\\cloudcomparescript"
   cloudcompy_python: "C:\\Users\\Photogrammetry\\CloudComPy\\venv312\\Scripts\\python.exe"
   cloudcompy_root: "C:\\Users\\Photogrammetry\\CloudComPy\\CloudComPy312"
+  # Conda env (Miniforge) that provides usdcat.exe — the OpenUSD CLI auto_snip shells
+  # out to for USDZ→USDA. Its activation dirs are appended to the volume-script PATH.
+  usd_env_root: "C:\\Users\\Photogrammetry\\miniforge3\\envs\\usdtools"
   # create_su_sheet is a QGIS script (not CloudComPy): launched via QGIS's bundled
   # Python so import qgis.core/processing works. create_su_sheet_dir is its repo dir
   # (cwd for the run); the dashboard writes su_sheets_input.json there.

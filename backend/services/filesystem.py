@@ -540,11 +540,17 @@ def find_su_sheet_pdf_for_su(su_id: str) -> Optional[Path]:
     return pdf if pdf.exists() else None
 
 
-def find_debug_image_for_su(su_id: str, top_pgram: str) -> Optional[Path]:
-    """Find the debug image written by auto_snip_script.
+def find_debug_image_for_su(su_id: str, top_pgram: str = "") -> Optional[Path]:
+    """Find the auto-snip snip-reference debug image for this SU.
 
-    Looks for Data/<Pgram_Job_{top_pgram}*>/SU_{su_id}_debug.* (any extension).
-    Returns None if no file is found (implies auto-snip has not run for this SU).
+    auto_snip_script.py writes debug images under <volume_script_dir>/Data/<input-basename>/
+    (the backend always writes input.json, so the folder is 'Data/input'), named
+    debug_SU<su>_snip_reference.png. A single USDZ scan may cover several SUs, so <su>
+    can be a range like '22044-22048'; this SU matches if its number appears as a token
+    (split on '-' or '_') of that SU segment. Returns None if none is found (implies
+    auto-snip has not produced output for this SU). top_pgram is accepted for backwards
+    compatibility but no longer used — the file lives in the input folder, not a
+    per-pgram one.
     """
     cfg = get_config()
     if not cfg.volume_script_dir:
@@ -552,15 +558,22 @@ def find_debug_image_for_su(su_id: str, top_pgram: str) -> Optional[Path]:
     data_dir = Path(cfg.volume_script_dir) / "Data"
     if not data_dir.exists():
         return None
-    prefix = f"pgram_job_{str(top_pgram).strip()}"
-    stem = f"su_{su_id}_debug"
+    su = str(su_id).strip()
+    exact = f"debug_SU{su}_snip_reference.png"
+    fallback: Optional[Path] = None
     for d in data_dir.iterdir():
-        if not d.is_dir() or not d.name.lower().startswith(prefix):
+        if not d.is_dir():
             continue
-        for f in d.iterdir():
-            if f.is_file() and f.stem.lower() == stem:
-                return f
-    return None
+        for f in d.glob("debug_SU*_snip_reference.png"):
+            if f.name == exact:
+                return f  # single-SU match — prefer it
+            seg = f.name[len("debug_SU"):-len("_snip_reference.png")]
+            # Split on any non-digit run so range/multi-SU names match regardless of the
+            # separator the scan used — '22044-22048', '20038;_20050', '22018_22019' all
+            # yield clean numeric tokens.
+            if su in [t for t in re.split(r"\D+", seg) if t]:
+                fallback = fallback or f
+    return fallback
 
 
 def scan_subfolders(parent_path: Optional[str] = None) -> list[str]:
