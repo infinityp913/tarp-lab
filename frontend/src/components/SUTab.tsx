@@ -62,6 +62,7 @@ export function SUTab() {
   const [loading, setLoading] = useState(true)
   const [trenchFilter, setTrenchFilter] = useState('All Trenches')
   const [readyFilter, setReadyFilter] = useState<'all' | 'ready' | 'not_ready'>('all')
+  const [flagFilter, setFlagFilter] = useState<'all' | 'flagged' | 'not_flagged'>('all')
   const [detailEntry, setDetailEntry] = useState<SUEntry | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [draggingEntry, setDraggingEntry] = useState<SUEntry | null>(null)
@@ -193,8 +194,12 @@ export function SUTab() {
 
   const filtered = entries.filter((e) => {
     if (trenchFilter !== 'All Trenches' && e.trench !== trenchFilter) return false
-    if (readyFilter === 'ready' && !e.ready) return false
+    // "Ready to extract" excludes flagged cards — a flag marks a card as needing
+    // attention, so it should not count as ready even if its PLYs are processed.
+    if (readyFilter === 'ready' && (!e.ready || e.flagged)) return false
     if (readyFilter === 'not_ready' && e.ready) return false
+    if (flagFilter === 'flagged' && !e.flagged) return false
+    if (flagFilter === 'not_flagged' && e.flagged) return false
     return true
   })
 
@@ -343,9 +348,25 @@ export function SUTab() {
             <button onClick={() => setReadyFilter('all')} style={chipClear} title="Clear filter">✕</button>
           </span>
         )}
+        <select
+          value={flagFilter}
+          onChange={(e) => setFlagFilter(e.target.value as typeof flagFilter)}
+          style={selectStyle}
+          title="Filter by flag status"
+        >
+          <option value="all">All flags</option>
+          <option value="flagged">🚩 Flagged</option>
+          <option value="not_flagged">Not flagged</option>
+        </select>
+        {flagFilter !== 'all' && (
+          <span style={filterChip}>
+            {flagFilter === 'flagged' ? '🚩 Flagged' : 'Not flagged'}
+            <button onClick={() => setFlagFilter('all')} style={chipClear} title="Clear filter">✕</button>
+          </span>
+        )}
         <span style={{ fontSize: 13, color: T.textMuted }}>
           {filtered.length} entr{filtered.length !== 1 ? 'ies' : 'y'}
-          {(trenchFilter !== 'All Trenches' || readyFilter !== 'all') && ` of ${entries.length}`}
+          {(trenchFilter !== 'All Trenches' || readyFilter !== 'all' || flagFilter !== 'all') && ` of ${entries.length}`}
           {` · ${readyCount} ready`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>

@@ -65,7 +65,7 @@ Across all Pgram\_Job projects in `Processed`:
 | GIS\_2024 | 133.6 | 1,751 | Prior-season GIS archive |
 | Trash Trench Data | 84.8 | 4,328 | Rejected / debug runs |
 | TARP 2025 Photogrammetry | 52.2 | 1,137 | Drone/GCP capture, current season |
-| AutomateRockMask | 49.0 | 9,573 | Automation code \+ its data (git repo) |
+| AutomateSuSheetCreation | 49.0 | 9,573 | Automation code \+ its data (git repo) |
 | Working | 36.5 | 1,262 | Active/in-progress jobs |
 | TARP 2024 Photogrammetry \-- Backlog | 32.2 | 1,743 | Drone/GCP, prior season |
 | Backup Trench Data | 23.4 | 2,326 | Safety copies |
@@ -90,7 +90,7 @@ Across all Pgram\_Job projects in `Processed`:
 
 - **`PGStatus`** — a git repo that mirrors the pipeline folder names (`Processed`, `To Be Aligned`, `To Be Processed`, `To Overnight`, `Uploaded to AIR`, `Utils`). This appears to be a tracking/status system, possibly a lightweight manifest of what's where. Worth inspecting its git history for workflow history.  
 - **`AIR`** — another git repo with its own `virtualenv` and `NXS_conversion` subfolder. Likely the upload/publishing target for finished products. Pipeline ends at "Uploaded to AIR".  
-- **`AutomateRockMask`** — git repo with DEMs, orthos, PLYs, shapefiles, templates, plus a `processing/` folder. Automation around rock-mask generation, one of the heavier compute steps.  
+- **`AutomateSuSheetCreation`** — git repo with DEMs, orthos, PLYs, shapefiles, templates, plus a `processing/` folder. Automation around rock-mask generation, one of the heavier compute steps.  
 - **`GetElevations`**, **`NXS_conversion`**, **`Volumetrics_2025`** — focused utility workflows, each with their own folder.  
 - **`SU_tool`**, **`PhotogrammetryUtils`**, **`Utils`** — shared tooling.
 

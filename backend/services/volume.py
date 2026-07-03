@@ -228,7 +228,21 @@ def provision_from_ply() -> dict:
     # deprovision just removed.
     processed_nums = processed_pgram_nums()
 
-    existing_su_ids: set[str] = {row["su_id"] for row in gsheets.get_su_rows()}
+    # Safety: provisioning CREATES/OVERWRITES cards keyed by su_id, so it must know
+    # the full set of existing SUs. A failed/rate-limited (429) read makes finished
+    # cards look absent and would re-create them as fresh 'not_started', clobbering
+    # real Volume/SU-sheet status. Read strictly and bail on any read failure —
+    # mirrors deprovision's never-act-on-a-blank-scan guard.
+    existing_rows = gsheets.get_su_rows(strict=True)
+    if existing_rows is None:
+        logger.warning(
+            "provision_from_ply: SU read failed (Sheets unavailable/rate-limited) — "
+            "skipping provisioning so we don't clobber existing cards"
+        )
+        return {"created": [], "skipped": [{"reason": "su read failed — provisioning skipped"}],
+                "ply_count": len(ply_files)}
+
+    existing_su_ids: set[str] = {row["su_id"] for row in existing_rows}
     field_map = gsheets.get_field_pgram_map()
     pgram_su_strings = _pgram_to_su_string()
 

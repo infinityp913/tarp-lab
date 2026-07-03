@@ -1,14 +1,16 @@
+import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { PgramJob } from '../types'
 import type { RunJobStatus } from '../api/pgram'
-import { openApp } from '../api/pgram'
+import { openApp, updateFlagged } from '../api/pgram'
 import { toast } from './Toast'
 import { T } from '../tokens'
 
 interface Props {
   job: PgramJob
   onClick: () => void
+  onUpdated?: (job: PgramJob) => void  // called after a card field (e.g. flag) changes
   onAdvance?: () => void          // advance one stage forward; omit to hide the → arrow
   nextStageLabel?: string         // tooltip for the → arrow, e.g. "Move to To Overnight"
   runStatus?: RunJobStatus        // this job's state in the active run, if any
@@ -24,15 +26,31 @@ const RUN_BADGE: Record<RunJobStatus, { icon: string; color: string; bg: string 
   cancelled: { icon: '⊘',  color: '#cbd5e1', bg: '#33415555' },
 }
 
-export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, runStep, runError }: Props) {
+export function JobCard({ job, onClick, onUpdated, onAdvance, nextStageLabel, runStatus, runStep, runError }: Props) {
   const {
     attributes, listeners, setNodeRef, transform, isDragging,
   } = useDraggable({ id: job.job_id })
+
+  const [flagging, setFlagging] = useState(false)
 
   const inRun = runStatus === 'running' || runStatus === 'queued'
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     opacity: isDragging ? 0.4 : 1,
+  }
+
+  async function handleFlagToggle(e: React.MouseEvent) {
+    e.stopPropagation()
+    const next = !job.flagged
+    setFlagging(true)
+    try {
+      await updateFlagged(job.job_id, next)
+      onUpdated?.({ ...job, flagged: next })
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to update flag', 'error')
+    } finally {
+      setFlagging(false)
+    }
   }
 
   async function handleOpen(app: string, e: React.MouseEvent) {
@@ -51,7 +69,7 @@ export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, ru
   return (
     <div
       ref={setNodeRef}
-      style={{ ...cardStyle, ...style }}
+      style={{ ...cardStyle, ...(job.flagged ? flaggedCardStyle : null), ...style }}
       {...attributes}
       {...listeners}
       onClick={onClick}
@@ -59,6 +77,17 @@ export function JobCard({ job, onClick, onAdvance, nextStageLabel, runStatus, ru
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <span style={{ fontWeight: 700, fontSize: 14, color: T.text }}>{job.job_id}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleFlagToggle}
+            disabled={flagging}
+            title={job.flagged ? 'Flagged — click to clear' : 'Flag this card'}
+            style={{
+              border: 'none', background: 'transparent', cursor: flagging ? 'default' : 'pointer',
+              fontSize: 13, lineHeight: 1, padding: 0, opacity: flagging ? 0.4 : (job.flagged ? 1 : 0.35),
+              filter: job.flagged ? 'none' : 'grayscale(1)',
+            }}
+          >🚩</button>
           {runStatus && (
             <span
               title={
@@ -146,4 +175,9 @@ const cardStyle: React.CSSProperties = {
   cursor: 'grab',
   border: `1px solid ${T.border}`,
   userSelect: 'none',
+}
+
+const flaggedCardStyle: React.CSSProperties = {
+  borderColor: '#ef4444',
+  borderLeft: '3px solid #ef4444',
 }

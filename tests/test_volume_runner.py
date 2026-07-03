@@ -98,3 +98,96 @@ def test_write_input_json_su_range_preserved(tmp_path):
     volume_runner._write_input_json(cards, str(tmp_path))
     data = json.loads((tmp_path / "input.json").read_text())
     assert data[0]["su"] == "22044-22048"
+
+
+def test_write_input_json_dedupes_repeated_pgram_pairs(tmp_path):
+    # Several SU cards sharing the same top/bottom pgram pair must collapse to a
+    # single compute entry (the scripts key output on the top pgram), while a
+    # genuinely different pair stays. The first SU for a pair is the one kept.
+    cards = [
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21002"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21003"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21004"},
+        {"top_pgram": "816", "bot_pgram": "819", "su_id": "21010"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path))
+    assert count == 2
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data == [
+        {"top": "792", "bottom": "835", "su": "21002"},
+        {"top": "816", "bottom": "819", "su": "21010"},
+    ]
+
+
+def test_write_input_json_dedupe_is_order_sensitive_on_swapped_pairs(tmp_path):
+    # (top, bottom) is directional — a swapped pair is a different computation
+    # and must NOT be collapsed.
+    cards = [
+        {"top_pgram": "800", "bot_pgram": "801", "su_id": "1"},
+        {"top_pgram": "801", "bot_pgram": "800", "su_id": "2"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path))
+    assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# cross-process run lock
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+import types  # noqa: E402
+
+
+def _cfg(tmp_path):
+    return types.SimpleNamespace(volume_script_dir=str(tmp_path), create_su_sheet_dir=None)
+
+
+def test_pid_alive_true_for_current_process():
+    assert volume_runner._pid_alive(os.getpid()) is True
+
+
+def test_pid_alive_false_for_zero_or_negative():
+    assert volume_runner._pid_alive(0) is False
+    assert volume_runner._pid_alive(-1) is False
+
+
+def test_write_and_clear_lock_roundtrip(tmp_path):
+    cfg = _cfg(tmp_path)
+    volume_runner._write_lock(cfg, "pre_snip", 4242)
+    lock = tmp_path / volume_runner._LOCK_NAME
+    assert lock.exists()
+    data = json.loads(lock.read_text())
+    assert data["pid"] == 4242 and data["kind"] == "pre_snip"
+    volume_runner._clear_lock(cfg)
+    assert not lock.exists()
+
+
+def test_clear_lock_is_noop_when_absent(tmp_path):
+    volume_runner._clear_lock(_cfg(tmp_path))  # must not raise
+
+
+def test_active_lock_returns_data_when_pid_alive(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    volume_runner._write_lock(cfg, "auto_snip", 4242)
+    monkeypatch.setattr(volume_runner, "_pid_alive", lambda pid: True)
+    held = volume_runner._active_lock(cfg)
+    assert held is not None and held["kind"] == "auto_snip"
+    assert (tmp_path / volume_runner._LOCK_NAME).exists()  # live lock is kept
+
+
+def test_active_lock_clears_stale_lock_when_pid_dead(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    volume_runner._write_lock(cfg, "pre_snip", 4242)
+    monkeypatch.setattr(volume_runner, "_pid_alive", lambda pid: False)
+    assert volume_runner._active_lock(cfg) is None
+    assert not (tmp_path / volume_runner._LOCK_NAME).exists()  # stale lock removed
+
+
+def test_active_lock_none_when_no_lockfile(tmp_path):
+    assert volume_runner._active_lock(_cfg(tmp_path)) is None
+
+
+def test_active_lock_clears_corrupt_lockfile(tmp_path):
+    (tmp_path / volume_runner._LOCK_NAME).write_text("{not json")
+    assert volume_runner._active_lock(_cfg(tmp_path)) is None
+    assert not (tmp_path / volume_runner._LOCK_NAME).exists()

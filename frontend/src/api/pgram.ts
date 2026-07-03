@@ -108,6 +108,18 @@ export async function updateNotes(jobId: string, notes: string): Promise<void> {
   }
 }
 
+export async function updateFlagged(jobId: string, flagged: boolean): Promise<void> {
+  const res = await fetch(`/api/pgram/jobs/${jobId}/flagged`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flagged }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function openApp(jobId: string, app: string): Promise<void> {
   const res = await fetch(`/api/pgram/jobs/${jobId}/open/${app}`, { method: 'POST' })
   if (!res.ok) {

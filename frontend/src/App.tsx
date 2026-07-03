@@ -93,9 +93,12 @@ export function App() {
     }
   }, [syncState])
 
-  // Auto-sync every 300s
+  // Auto-sync every 30 min. Kept infrequent because handleSync runs a full_sync
+  // that clears+rewrites all 5 trench tabs — heavy on the Sheets read/write quota
+  // (60/min), which a tighter interval was blowing (429s). Immediate lab-side
+  // changes still write on their own mutations; the "Sync now" button forces one.
   useEffect(() => {
-    intervalRef.current = setInterval(handleSync, 300_000)
+    intervalRef.current = setInterval(handleSync, 1_800_000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [handleSync])
 

@@ -6,9 +6,9 @@ import pytest
 
 from backend.models import PgramJob, SUEntry, cet_now
 from backend.services.gsheets import (
-    PG_COLS, PG_NUM, PG_TRENCH, PG_NOTES, PG_UPDATED,
+    PG_COLS, PG_NUM, PG_TRENCH, PG_NOTES, PG_UPDATED, PG_FLAGGED,
     SU_COLS, SU_ID, SU_TOP_PGRAM, SU_BOT_PGRAM, SU_VOL, SU_SHEET, SU_AIR, SU_NOTES,
-    SU_READY_SHEET,
+    SU_READY_SHEET, SU_FLAGGED,
     _pg_num_str,
     _blank_if_na,
     _job_to_row,
@@ -48,12 +48,12 @@ def test_pg_num_str(job_id, expected):
 # ─── column counts ───────────────────────────────────────────────────────────
 
 def test_pg_cols_count():
-    assert PG_COLS == 8
+    assert PG_COLS == 9
     assert len(_pg_header()) == PG_COLS
 
 
 def test_su_cols_count():
-    assert SU_COLS == 11
+    assert SU_COLS == 12
     assert len(_su_header()) == SU_COLS
 
 
@@ -115,6 +115,22 @@ def test_su_to_row_ready_for_sheet():
         SUEntry(su_id="SU005", trench="", stage="volumetrics_created", ready_for_sheet=True)
     )
     assert checked[SU_READY_SHEET] is True
+
+
+def test_su_to_row_flagged():
+    default = _su_to_row(SUEntry(su_id="SU006", trench="", stage="not_started"))
+    assert default[SU_FLAGGED] is False
+    flagged = _su_to_row(SUEntry(su_id="SU007", trench="", stage="not_started", flagged=True))
+    assert flagged[SU_FLAGGED] is True
+
+
+def test_job_to_row_flagged():
+    default = _job_to_row(PgramJob(job_id="Pgram_Job_10", su_string="", trench="", stage="to_be_processed"))
+    assert default[PG_FLAGGED] is False
+    flagged = _job_to_row(
+        PgramJob(job_id="Pgram_Job_11", su_string="", trench="", stage="to_be_processed", flagged=True)
+    )
+    assert flagged[PG_FLAGGED] is True
 
 
 # ─── _rows_to_pgram ──────────────────────────────────────────────────────────
@@ -195,6 +211,27 @@ def test_rows_to_su_ready_for_sheet():
     )
     result = {r["su_id"]: r["ready_for_sheet"] for r in _rows_to_su(rows, "17000")}
     assert result == {"SU010": True, "SU011": False, "SU012": False}
+
+
+def test_rows_to_su_flagged():
+    # Col L (index 11) TRUE → flagged True; short row (no col L) → False
+    rows = _su_fake_rows(
+        ["SU020", 0, 0, "not_started", False, False, False, False, "", "", "", True],
+        ["SU021", 0, 0, "not_started", False, False, False, False, "", "", "", False],
+        ["SU022", 0, 0, "not_started", False],  # short row → flagged False
+    )
+    result = {r["su_id"]: r["flagged"] for r in _rows_to_su(rows, "17000")}
+    assert result == {"SU020": True, "SU021": False, "SU022": False}
+
+
+def test_rows_to_pgram_flagged():
+    # Col I (index 8) TRUE → flagged True; short row (no col I) → False
+    rows = _pg_fake_rows(
+        [800, "Trench 20000", False, False, False, False, "", "", True],
+        [801, "Trench 20000", False, False, False, False, "", ""],  # short → False
+    )
+    result = {r["job_id"]: r["flagged"] for r in _rows_to_pgram(rows)}
+    assert result == {"Pgram_Job_800": True, "Pgram_Job_801": False}
 
 
 def test_rows_to_su_skips_empty_id():

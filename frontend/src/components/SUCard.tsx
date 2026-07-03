@@ -5,7 +5,7 @@ import type { SUEntry } from '../types'
 import {
   openPly, openBothPly, updatePgrams,
   openBins, openPostSnipBin, openVolume, openTopVolume, openSuSheet, openDebugImage, openLidar, startVolumeRun,
-  updateReadyForSheet,
+  updateReadyForSheet, updateFlagged,
 } from '../api/su'
 import { toast } from './Toast'
 import { T } from '../tokens'
@@ -90,6 +90,20 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
     }
   }
 
+  async function handleFlagToggle(e: React.MouseEvent) {
+    e.stopPropagation()
+    const next = !entry.flagged
+    setActionLoading('flag')
+    try {
+      await updateFlagged(entry.su_id, next)
+      onUpdated({ ...entry, flagged: next })
+    } catch (err: unknown) {
+      toast((err as Error).message || 'Failed to update flag', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   async function handleReadyForSheetToggle(e: React.ChangeEvent<HTMLInputElement>) {
     const next = e.target.checked
     setActionLoading('readysheet')
@@ -122,7 +136,7 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
   return (
     <div
       ref={setNodeRef}
-      style={{ ...cardStyle, ...style }}
+      style={{ ...cardStyle, ...(entry.flagged ? flaggedCardStyle : null), ...style }}
       {...attributes}
       {...listeners}
       onClick={onClick}
@@ -140,6 +154,19 @@ export function SUCard({ entry, onClick, onUpdated, onAdvance, nextStageLabel, r
           )}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleFlagToggle}
+            disabled={actionLoading === 'flag'}
+            title={entry.flagged ? 'Flagged — click to clear' : 'Flag this card'}
+            style={{
+              border: 'none', background: 'transparent',
+              cursor: actionLoading === 'flag' ? 'default' : 'pointer',
+              fontSize: 13, lineHeight: 1, padding: 0,
+              opacity: actionLoading === 'flag' ? 0.4 : (entry.flagged ? 1 : 0.35),
+              filter: entry.flagged ? 'none' : 'grayscale(1)',
+            }}
+          >🚩</button>
           {onAdvance && (
             <button
               style={advanceBtn}
@@ -348,6 +375,11 @@ const cardStyle: React.CSSProperties = {
   cursor: 'grab',
   border: `1px solid ${T.border}`,
   userSelect: 'none',
+}
+
+const flaggedCardStyle: React.CSSProperties = {
+  borderColor: '#ef4444',
+  borderLeft: '3px solid #ef4444',
 }
 
 const readyBadge: React.CSSProperties = {

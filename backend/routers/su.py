@@ -8,6 +8,7 @@ from backend.models import (
     SUEntry,
     StageTransitionRequest,
     TRANSITION_DIALOGS,
+    UpdateFlaggedRequest,
     UpdateNotesRequest,
     UpdateReadyForSheetRequest,
     UpdateSUPgramsRequest,
@@ -339,6 +340,18 @@ def update_ready_for_sheet(su_id: str, req: UpdateReadyForSheetRequest):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True, "ready_for_sheet": req.ready}
+
+
+@router.put("/entries/{su_id}/flagged")
+def update_flagged(su_id: str, req: UpdateFlaggedRequest):
+    """Toggle the flagged-for-attention state for an SU entry."""
+    try:
+        gsheets.update_su_flagged(su_id, req.flagged)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "flagged": req.flagged}
 
 
 # NOTE: static routes (/run/status, /run/cancel, /run/chain) MUST precede dynamic /run/{kind}

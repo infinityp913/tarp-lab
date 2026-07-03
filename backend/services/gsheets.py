@@ -70,7 +70,8 @@ PG_OVERNIGHT = 4
 PG_AIR = 5
 PG_NOTES = 6
 PG_UPDATED = 7
-PG_COLS = 8
+PG_FLAGGED = 8       # lab-flagged for attention — appended at the end so existing columns don't shift
+PG_COLS = 9
 
 # Column indices — TARP Field Pgram Tracking (read-only from lab)
 FP_NUM = 0
@@ -93,7 +94,8 @@ SU_AIR = 7
 SU_NOTES = 8
 SU_UPDATED = 9
 SU_SNIP_METHOD_COL = 10  # "auto" when auto-snip advanced this card; "" otherwise
-SU_COLS = 11
+SU_FLAGGED = 11          # lab-flagged for attention — appended at the end so existing columns don't shift
+SU_COLS = 12
 
 # The five trench-specific SU tabs
 _SU_TRENCH_TABS = [
@@ -489,7 +491,7 @@ def _pg_header() -> list:
         "Pgram Number", "Trench",
         "Photos—No Alignment", "Alignment+Manual Check",
         "PLY Created (Overnight completed)", "Uploaded to AIR",
-        "Notes", "Last Updated (CET)",
+        "Notes", "Last Updated (CET)", "Flagged",
     ]
 
 
@@ -499,7 +501,7 @@ def _su_header() -> list:
         "Volume Stage",
         "Volume Created", "Ready for SU Sheet", "SU Sheet Created",
         "Uploaded to AIR",
-        "Notes", "Last Updated (CET)", "Snip Method",
+        "Notes", "Last Updated (CET)", "Snip Method", "Flagged",
     ]
 
 
@@ -523,6 +525,7 @@ def _job_to_row(job: PgramJob) -> list:
         air,
         job.notes,
         cet_now(),
+        bool(getattr(job, "flagged", False)),
     ]
 
 
@@ -543,6 +546,7 @@ def _su_to_row(entry: SUEntry) -> list:
         entry.notes,
         cet_now(),
         entry.snip_method,
+        bool(getattr(entry, "flagged", False)),
     ]
 
 
@@ -577,6 +581,7 @@ def _rows_to_pgram(rows: list[list]) -> list[dict]:
             "sus_opened": "",
             "sus_closed": "",
             "last_updated": row[PG_UPDATED],
+            "flagged": _bool(row[PG_FLAGGED]) if len(row) > PG_FLAGGED else False,
         })
     return result
 
@@ -643,6 +648,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
             notes = ""
         snip_method = str(row[SU_SNIP_METHOD_COL]).strip() if len(row) > SU_SNIP_METHOD_COL else ""
         ready_for_sheet = _bool(row[SU_READY_SHEET]) if len(row) > SU_READY_SHEET else False
+        flagged = _bool(row[SU_FLAGGED]) if len(row) > SU_FLAGGED else False
         result.append({
             "su_id": row[SU_ID],
             "top_pgram": str(row[SU_TOP_PGRAM]),
@@ -653,6 +659,7 @@ def _rows_to_su(rows: list[list], trench: str) -> list[dict]:
             "last_updated": row[SU_UPDATED],
             "snip_method": snip_method,
             "ready_for_sheet": ready_for_sheet,
+            "flagged": flagged,
         })
     return result
 
@@ -667,7 +674,7 @@ def get_pgram_rows() -> list[dict]:
     if not is_available():
         return []
 
-    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:H")
+    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:I")
     if rows is None:
         logger.warning("get_pgram_rows: lab sheet read failed — returning stale cache")
         with _cache_lock:
@@ -691,20 +698,33 @@ def get_pgram_rows() -> list[dict]:
     return data
 
 
-def get_su_rows() -> list[dict]:
-    """Read all 5 trench tabs in one batchGet call and return a combined flat list."""
+def get_su_rows(strict: bool = False) -> Optional[list[dict]]:
+    """Read all 5 trench tabs in one batchGet call and return a combined flat list.
+
+    strict=False (default): best-effort. On a failed/unavailable read, fall back to
+    the (possibly stale) cache so read-only callers keep working. May return [].
+
+    strict=True: for callers that MUST NOT act on an incomplete view (e.g.
+    provisioning, which creates/overwrites cards). Forces a fresh read and returns
+    None — never stale cache, never a silent [] — if Sheets is unavailable or the
+    read fails (e.g. a 429 rate-limit). This prevents mass mis-provisioning when a
+    transient read failure makes existing cards look absent.
+    """
     global _su_cache, _su_cache_time
     with _cache_lock:
-        if time.time() - _su_cache_time < _SU_CACHE_TTL:
+        if not strict and time.time() - _su_cache_time < _SU_CACHE_TTL:
             return list(_su_cache)
 
     if not is_available():
-        return []
+        return None if strict else []
 
-    ranges = [f"{tab}!A:K" for tab in _SU_TRENCH_TABS]
+    ranges = [f"{tab}!A:L" for tab in _SU_TRENCH_TABS]
     all_rows = _batch_read_ranges(ranges)
 
     if all_rows is None:
+        if strict:
+            logger.warning("get_su_rows(strict): batchGet failed — signalling read failure")
+            return None
         logger.warning("get_su_rows: batchGet failed — returning stale cache")
         with _cache_lock:
             return list(_su_cache)
@@ -741,7 +761,7 @@ def upsert_pgram(job: PgramJob):
     """Write or update a row in TARP Lab Pgram Tracking (lab columns only)."""
     if not is_available():
         return
-    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:H")
+    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:I")
     if rows is None:
         raise RuntimeError("Google Sheets read failed during upsert_pgram")
     data = rows[1:] if len(rows) > 1 else []
@@ -754,7 +774,10 @@ def upsert_pgram(job: PgramJob):
         if _pg_num_str(str(row[PG_NUM])) == job_num:
             if not job.notes and row[PG_NOTES]:
                 new_row[PG_NOTES] = row[PG_NOTES]
-            _write_range(f"{_LAB_PGRAM_SHEET}!A{i + 2}:H{i + 2}", [new_row])
+            # Preserve an existing flag unless the caller explicitly set one.
+            if not job.flagged and len(row) > PG_FLAGGED and _bool(row[PG_FLAGGED]):
+                new_row[PG_FLAGGED] = True
+            _write_range(f"{_LAB_PGRAM_SHEET}!A{i + 2}:I{i + 2}", [new_row])
             _invalidate_pgram_cache()
             return
 
@@ -765,7 +788,7 @@ def upsert_pgram(job: PgramJob):
 def update_pgram_stage(job_id: str, stage: str):
     if not is_available():
         return
-    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:H")
+    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:I")
     if rows is None:
         raise RuntimeError("Google Sheets read failed during update_pgram_stage")
     photos, align, overnight, air = _pgram_checkboxes(stage)
@@ -790,13 +813,13 @@ def update_pgram_stage(job_id: str, stage: str):
 def update_pgram_notes(job_id: str, notes: str):
     if not is_available():
         raise RuntimeError("Google Sheets is unavailable")
-    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:H")
+    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:I")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     job_num = _pg_num_str(job_id)
     for i, row in enumerate(rows[1:], start=2):
         if row and _pg_num_str(str(row[0])) == job_num:
-            # Columns G-H: notes(G=6), updated(H=7)
+            # Columns G-H: notes(G=6), updated(H=7). Flagged (I) is left untouched.
             _write_range(f"{_LAB_PGRAM_SHEET}!G{i}:H{i}", [[notes, cet_now()]])
             _invalidate_pgram_cache()
             return
@@ -819,7 +842,7 @@ def upsert_su(entry: SUEntry):
     if not tab:
         _log_error(f"upsert_su: cannot determine tab for SU {entry.su_id}")
         return
-    rows = _read_range(f"{tab}!A:K")
+    rows = _read_range(f"{tab}!A:L")
     if rows is None:
         raise RuntimeError(f"Google Sheets read failed during upsert_su ({tab})")
     data = rows[1:] if len(rows) > 1 else []
@@ -829,7 +852,10 @@ def upsert_su(entry: SUEntry):
         while len(row) < SU_COLS:
             row.append("")
         if row[SU_ID] == entry.su_id:
-            _write_range(f"{tab}!A{i + 2}:K{i + 2}", [new_row])
+            # Preserve an existing flag unless the caller explicitly set one.
+            if not entry.flagged and len(row) > SU_FLAGGED and _bool(row[SU_FLAGGED]):
+                new_row[SU_FLAGGED] = True
+            _write_range(f"{tab}!A{i + 2}:L{i + 2}", [new_row])
             _invalidate_su_cache()
             return
 
@@ -847,7 +873,7 @@ def update_su_stage(su_id: str, stage: str, snip_method: Optional[str] = None):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:K")
+    rows = _read_range(f"{tab}!A:L")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     vol, sheet, air = _su_checkboxes(stage)
@@ -877,7 +903,7 @@ def update_su_pgrams(su_id: str, top_pgram: str, bot_pgram: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:K")
+    rows = _read_range(f"{tab}!A:L")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     top = int(top_pgram) if str(top_pgram).isdigit() else (top_pgram or "")
@@ -919,7 +945,7 @@ def delete_su(su_id: str, trench: str = "") -> bool:
     if sheet_id is None:
         raise ValueError(f"Tab {tab} not found")
 
-    rows = _read_range(f"{tab}!A:K")
+    rows = _read_range(f"{tab}!A:L")
     if rows is None:
         raise RuntimeError("Google Sheets read failed during delete_su")
     # enumerate from 1 so `i` is the 0-based sheet row index (header is row 0).
@@ -945,7 +971,7 @@ def update_su_notes(su_id: str, notes: str):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:K")
+    rows = _read_range(f"{tab}!A:L")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
@@ -967,7 +993,7 @@ def update_su_ready_for_sheet(su_id: str, ready: bool):
     tab = _su_tab_for(su_id)
     if not tab:
         raise ValueError(f"Cannot determine trench tab for SU {su_id}")
-    rows = _read_range(f"{tab}!A:K")
+    rows = _read_range(f"{tab}!A:L")
     if rows is None:
         raise RuntimeError("Google Sheets read timed out")
     for i, row in enumerate(rows[1:], start=2):
@@ -976,6 +1002,46 @@ def update_su_ready_for_sheet(su_id: str, ready: bool):
             _invalidate_su_cache()
             return
     raise ValueError(f"SU {su_id} not found in {tab}")
+
+
+def update_su_flagged(su_id: str, flagged: bool):
+    """Set the 'Flagged' checkbox (col L) for an SU entry.
+
+    Only touches col L so it never disturbs the stage/notes/timestamp columns.
+    """
+    if not is_available():
+        raise RuntimeError("Google Sheets is unavailable")
+    tab = _su_tab_for(su_id)
+    if not tab:
+        raise ValueError(f"Cannot determine trench tab for SU {su_id}")
+    rows = _read_range(f"{tab}!A:L")
+    if rows is None:
+        raise RuntimeError("Google Sheets read timed out")
+    for i, row in enumerate(rows[1:], start=2):
+        if row and row[0] == su_id:
+            _write_range(f"{tab}!L{i}:L{i}", [[bool(flagged)]])
+            _invalidate_su_cache()
+            return
+    raise ValueError(f"SU {su_id} not found in {tab}")
+
+
+def update_pgram_flagged(job_id: str, flagged: bool):
+    """Set the 'Flagged' checkbox (col I) for a pgram job.
+
+    Only touches col I so it never disturbs the stage/notes/timestamp columns.
+    """
+    if not is_available():
+        raise RuntimeError("Google Sheets is unavailable")
+    rows = _read_range(f"{_LAB_PGRAM_SHEET}!A:I")
+    if rows is None:
+        raise RuntimeError("Google Sheets read timed out")
+    job_num = _pg_num_str(job_id)
+    for i, row in enumerate(rows[1:], start=2):
+        if row and _pg_num_str(str(row[0])) == job_num:
+            _write_range(f"{_LAB_PGRAM_SHEET}!I{i}:I{i}", [[bool(flagged)]])
+            _invalidate_pgram_cache()
+            return
+    raise ValueError(f"Job {job_id} not found in {_LAB_PGRAM_SHEET}")
 
 
 def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
@@ -1007,11 +1073,11 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
     sid = get_config().gsheets_spreadsheet_id
 
     # Write lab pgram sheet directly
-    _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{_LAB_PGRAM_SHEET}!A:H"))
+    _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{_LAB_PGRAM_SHEET}!A:I"))
     _write_range(f"{_LAB_PGRAM_SHEET}!A1", pgram_rows)
 
     if pg_sheet_id:
-        _apply_sheet_style(svc, sid, pg_sheet_id, PG_COLS, [PG_PHOTOS, PG_ALIGN, PG_OVERNIGHT, PG_AIR])
+        _apply_sheet_style(svc, sid, pg_sheet_id, PG_COLS, [PG_PHOTOS, PG_ALIGN, PG_OVERNIGHT, PG_AIR, PG_FLAGGED])
 
     # Write SU trench tabs directly (no staging)
     entries_by_trench: dict[str, list[SUEntry]] = {
@@ -1025,11 +1091,11 @@ def full_sync(pgram_jobs: list[PgramJob], su_entries: list[SUEntry]):
         trench = tab.replace("Trench ", "")
         entries = entries_by_trench.get(trench, [])
         su_rows = [_su_header()] + [_su_to_row(e) for e in entries]
-        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:K"))
+        _execute(svc.spreadsheets().values().clear(spreadsheetId=sid, range=f"{tab}!A:L"))
         _write_range(f"{tab}!A1", su_rows)
         tab_id = trench_tab_ids.get(tab, 0)
         if tab_id:
-            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR, SU_READY_SHEET])
+            _apply_sheet_style(svc, sid, tab_id, SU_COLS, [SU_VOL, SU_SHEET, SU_AIR, SU_READY_SHEET, SU_FLAGGED])
 
     _invalidate_pgram_cache()
     _invalidate_su_cache()

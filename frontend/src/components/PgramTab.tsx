@@ -56,6 +56,7 @@ export function PgramTab({ refreshKey }: Props) {
   const [jobs, setJobs] = useState<PgramJob[]>([])
   const [loading, setLoading] = useState(true)
   const [trenchFilter, setTrenchFilter] = useState('All Trenches')
+  const [flagFilter, setFlagFilter] = useState<'all' | 'flagged' | 'not_flagged'>('all')
   const [detailJob, setDetailJob] = useState<PgramJob | null>(null)
   const [draggingJob, setDraggingJob] = useState<PgramJob | null>(null)
   const [confirmState, setConfirmState] = useState<{
@@ -222,9 +223,12 @@ export function PgramTab({ refreshKey }: Props) {
 
   const trenches = [...new Set(jobs.map(j => j.trench).filter(Boolean))].sort()
 
-  const filtered = trenchFilter === 'All Trenches'
-    ? jobs
-    : jobs.filter((j) => j.trench === trenchFilter)
+  const filtered = jobs.filter((j) => {
+    if (trenchFilter !== 'All Trenches' && j.trench !== trenchFilter) return false
+    if (flagFilter === 'flagged' && !j.flagged) return false
+    if (flagFilter === 'not_flagged' && j.flagged) return false
+    return true
+  })
 
   const byStage = (stageKey: string) =>
     filtered.filter((j) => j.stage === stageKey)
@@ -343,9 +347,25 @@ export function PgramTab({ refreshKey }: Props) {
             <button onClick={() => setTrenchFilter('All Trenches')} style={chipClear} title="Clear filter">✕</button>
           </span>
         )}
+        <select
+          value={flagFilter}
+          onChange={(e) => setFlagFilter(e.target.value as typeof flagFilter)}
+          style={selectStyle}
+          title="Filter by flag status"
+        >
+          <option value="all">All flags</option>
+          <option value="flagged">🚩 Flagged</option>
+          <option value="not_flagged">Not flagged</option>
+        </select>
+        {flagFilter !== 'all' && (
+          <span style={filterChip}>
+            {flagFilter === 'flagged' ? '🚩 Flagged' : 'Not flagged'}
+            <button onClick={() => setFlagFilter('all')} style={chipClear} title="Clear filter">✕</button>
+          </span>
+        )}
         <span style={{ fontSize: 13, color: T.textMuted }}>
           {filtered.length} job{filtered.length !== 1 ? 's' : ''}
-          {trenchFilter !== 'All Trenches' && ` of ${jobs.length}`}
+          {(trenchFilter !== 'All Trenches' || flagFilter !== 'all') && ` of ${jobs.length}`}
         </span>
         <button onClick={load} style={refreshBtn} title="Refresh">↻ Refresh</button>
         <button
@@ -412,6 +432,9 @@ export function PgramTab({ refreshKey }: Props) {
                         key={job.job_id}
                         job={job}
                         onClick={() => setDetailJob(job)}
+                        onUpdated={(updated) =>
+                          setJobs((prev) => prev.map((j) => j.job_id === updated.job_id ? updated : j))
+                        }
                         onAdvance={next ? () => requestMove(job.job_id, next) : undefined}
                         nextStageLabel={next ? `Move to ${stageLabel(next)}` : undefined}
                         runStatus={rj?.status}

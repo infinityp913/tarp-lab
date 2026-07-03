@@ -23,7 +23,7 @@ def patch_sources(monkeypatch):
     def setup(*, ply_files, jobs, su_rows, field_map):
         monkeypatch.setattr(volume, "scan_ply_files", lambda: ply_files)
         monkeypatch.setattr(volume, "scan_filesystem", lambda: jobs)
-        monkeypatch.setattr(volume.gsheets, "get_su_rows", lambda: su_rows)
+        monkeypatch.setattr(volume.gsheets, "get_su_rows", lambda strict=False: su_rows)
         monkeypatch.setattr(volume.gsheets, "get_field_pgram_map", lambda: field_map)
         monkeypatch.setattr(volume.gsheets, "upsert_su", lambda entry: upserted.append(entry))
         return upserted
@@ -177,7 +177,7 @@ def patch_deprovision(monkeypatch):
         cleared = []
         jobs = [] if scan_empty else [_job(str(n), "") for n in processed]
         monkeypatch.setattr(volume, "scan_filesystem", lambda: jobs)
-        monkeypatch.setattr(volume.gsheets, "get_su_rows", lambda: su_rows)
+        monkeypatch.setattr(volume.gsheets, "get_su_rows", lambda strict=False: su_rows)
         monkeypatch.setattr(
             volume.gsheets, "delete_su",
             lambda su_id, trench="": deleted.append(su_id) or True,

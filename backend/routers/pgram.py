@@ -8,6 +8,7 @@ from backend.models import (
     CreatePgramJobRequest,
     PgramJob,
     StageTransitionRequest,
+    UpdateFlaggedRequest,
     UpdateNotesRequest,
     cet_now,
 )
@@ -35,6 +36,7 @@ def _build_job_list() -> list[PgramJob]:
             job.sus_opened = row.get("sus_opened", "")
             job.sus_closed = row.get("sus_closed", "")
             job.last_updated = row.get("last_updated", cet_now())
+            job.flagged = row.get("flagged", False)
         merged.append(job)
 
     return sorted(merged, key=lambda j: j.numeric_id, reverse=True)
@@ -151,6 +153,17 @@ def update_notes(job_id: str, req: UpdateNotesRequest):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
+
+
+@router.put("/jobs/{job_id}/flagged")
+def update_flagged(job_id: str, req: UpdateFlaggedRequest):
+    try:
+        gsheets.update_pgram_flagged(job_id, req.flagged)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "flagged": req.flagged}
 
 
 @router.post("/batch-move")
