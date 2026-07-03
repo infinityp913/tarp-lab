@@ -18,7 +18,14 @@ def sync():
         raise HTTPException(status_code=503, detail="Google Sheets is not configured or authentication failed.")
 
     pgram_jobs = _build_job_list()
-    su_rows = get_su_rows()
+    # full_sync CLEARS and rewrites every trench tab from these rows, so a stale or
+    # rate-limited (429) read must never drive it — that would overwrite finished
+    # cards with an incomplete view. Read strictly (fresh, no stale-cache fallback)
+    # and abort the sync on any read failure rather than clobbering good data.
+    su_rows = get_su_rows(strict=True)
+    if su_rows is None:
+        logger.warning("Sync aborted: SU read failed (Sheets unavailable/rate-limited) — not overwriting tabs")
+        raise HTTPException(status_code=503, detail="SU read failed — sync skipped to avoid overwriting data")
     su_entries = [
         SUEntry(
             su_id=r["su_id"],
@@ -33,6 +40,7 @@ def sync():
             # the auto-snip debug-image flag on every sync).
             snip_method=r.get("snip_method", ""),
             ready_for_sheet=r.get("ready_for_sheet", False),
+            flagged=r.get("flagged", False),
         )
         for r in su_rows
         if r.get("su_id")

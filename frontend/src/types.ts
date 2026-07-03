@@ -8,6 +8,8 @@ export interface PgramJob {
   sus_opened: string        // from TARP Field sheet (read-only)
   sus_closed: string        // from TARP Field sheet (read-only)
   last_updated: string
+  /** Lab-flagged for attention (red flag). */
+  flagged?: boolean
 }
 
 export interface SUEntry {
@@ -27,6 +29,8 @@ export interface SUEntry {
   snip_method?: string
   /** User-checked on Volume Created cards: include this card when Create SU Sheet runs. */
   ready_for_sheet?: boolean
+  /** Lab-flagged for attention (red flag). */
+  flagged?: boolean
 }
 
 export const PGRAM_STAGES = [

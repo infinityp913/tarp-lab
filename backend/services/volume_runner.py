@@ -136,21 +136,39 @@ def _write_input_json(cards: list[dict], script_dir: str) -> int:
 
     Each card must have a digit top_pgram and bot_pgram; cards missing either
     are skipped (logged). Returns the number of pairs written.
+
+    Pairs are de-duplicated by (top, bottom): the snip scripts key their output
+    on the top pgram, so multiple SU cards sharing the same pgram pair (common
+    with SU ranges) would otherwise re-run the same expensive cloud-to-cloud
+    computation and overwrite the same output — roughly doubling runtime for no
+    gain. Only the compute input is de-duped; card advancement in _worker still
+    iterates every card, so all SUs advance regardless.
     """
     import json
 
-    pairs = []
+    pairs: list[dict] = []
+    seen: dict[tuple[str, str], str] = {}  # (top, bottom) -> first su that used it
+    duplicates: list[str] = []
     for card in cards:
         top = str(card.get("top_pgram", ""))
         bot = str(card.get("bot_pgram", ""))
-        if top.isdigit() and bot.isdigit():
-            pairs.append({"top": top, "bottom": bot, "su": str(card.get("su_id", ""))})
-        else:
-            _log(f"  skip {card.get('su_id', '?')}: missing/invalid pgrams (top={top!r}, bot={bot!r})")
+        su = str(card.get("su_id", ""))
+        if not (top.isdigit() and bot.isdigit()):
+            _log(f"  skip {su or '?'}: missing/invalid pgrams (top={top!r}, bot={bot!r})")
+            continue
+        key = (top, bot)
+        if key in seen:
+            duplicates.append(f"{su or '?'}->{seen[key] or '?'}")
+            continue
+        seen[key] = su
+        pairs.append({"top": top, "bottom": bot, "su": su})
 
     dest = Path(script_dir) / "input.json"
     dest.write_text(json.dumps(pairs, indent=2))
-    _log(f"  wrote {len(pairs)} pair(s) to {dest}")
+    if duplicates:
+        _log(f"  collapsed {len(duplicates)} duplicate pgram pair(s) "
+             f"(SU->kept SU): {', '.join(duplicates)}")
+    _log(f"  wrote {len(pairs)} unique pair(s) to {dest}")
     return len(pairs)
 
 

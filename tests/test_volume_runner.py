@@ -98,3 +98,33 @@ def test_write_input_json_su_range_preserved(tmp_path):
     volume_runner._write_input_json(cards, str(tmp_path))
     data = json.loads((tmp_path / "input.json").read_text())
     assert data[0]["su"] == "22044-22048"
+
+
+def test_write_input_json_dedupes_repeated_pgram_pairs(tmp_path):
+    # Several SU cards sharing the same top/bottom pgram pair must collapse to a
+    # single compute entry (the scripts key output on the top pgram), while a
+    # genuinely different pair stays. The first SU for a pair is the one kept.
+    cards = [
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21002"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21003"},
+        {"top_pgram": "792", "bot_pgram": "835", "su_id": "21004"},
+        {"top_pgram": "816", "bot_pgram": "819", "su_id": "21010"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path))
+    assert count == 2
+    data = json.loads((tmp_path / "input.json").read_text())
+    assert data == [
+        {"top": "792", "bottom": "835", "su": "21002"},
+        {"top": "816", "bottom": "819", "su": "21010"},
+    ]
+
+
+def test_write_input_json_dedupe_is_order_sensitive_on_swapped_pairs(tmp_path):
+    # (top, bottom) is directional — a swapped pair is a different computation
+    # and must NOT be collapsed.
+    cards = [
+        {"top_pgram": "800", "bot_pgram": "801", "su_id": "1"},
+        {"top_pgram": "801", "bot_pgram": "800", "su_id": "2"},
+    ]
+    count = volume_runner._write_input_json(cards, str(tmp_path))
+    assert count == 2

@@ -42,6 +42,7 @@ class PgramJob(BaseModel):
     sus_opened: str = ""      # pulled from TARP Field Pgram Tracking (read-only in lab)
     sus_closed: str = ""      # pulled from TARP Field Pgram Tracking (read-only in lab)
     last_updated: str = ""
+    flagged: bool = False     # lab-flagged for attention (stored in TARP Lab Pgram Tracking)
 
     @classmethod
     def stage_label(cls, stage: str) -> str:
@@ -73,6 +74,7 @@ class SUEntry(BaseModel):
     last_updated: str = ""
     snip_method: str = ""  # "auto" when auto-snip advanced this card; "" otherwise
     ready_for_sheet: bool = False  # user-checked: include this card in Create SU Sheet runs
+    flagged: bool = False  # lab-flagged for attention (stored in the trench SU tab)
 
     @classmethod
     def stage_label(cls, stage: str) -> str:
@@ -121,6 +123,10 @@ class UpdateSUPgramsRequest(BaseModel):
 
 class UpdateReadyForSheetRequest(BaseModel):
     ready: bool
+
+
+class UpdateFlaggedRequest(BaseModel):
+    flagged: bool
 
 
 class CreateSUEntryRequest(BaseModel):

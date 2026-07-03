@@ -15,13 +15,13 @@ def test_sync_preserves_per_card_flags():
             "su_id": "20005", "top_pgram": "696", "bot_pgram": "697",
             "trench": "20000", "stage": "volumetrics_created",
             "notes": "keep me", "last_updated": "1 Jul 2026, 10:00",
-            "snip_method": "auto", "ready_for_sheet": True,
+            "snip_method": "auto", "ready_for_sheet": True, "flagged": True,
         },
         {
             "su_id": "20006", "top_pgram": "698", "bot_pgram": "699",
             "trench": "20000", "stage": "volumetrics_created",
             "notes": "", "last_updated": "1 Jul 2026, 10:00",
-            "snip_method": "", "ready_for_sheet": False,
+            "snip_method": "", "ready_for_sheet": False, "flagged": False,
         },
     ]
     captured = {}
@@ -39,5 +39,7 @@ def test_sync_preserves_per_card_flags():
     by_id = {e.su_id: e for e in captured["entries"]}
     assert by_id["20005"].ready_for_sheet is True
     assert by_id["20005"].snip_method == "auto"
+    assert by_id["20005"].flagged is True
     assert by_id["20006"].ready_for_sheet is False
     assert by_id["20006"].snip_method == ""
+    assert by_id["20006"].flagged is False

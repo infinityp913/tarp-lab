@@ -77,6 +77,18 @@ export async function updateReadyForSheet(suId: string, ready: boolean): Promise
   }
 }
 
+export async function updateFlagged(suId: string, flagged: boolean): Promise<void> {
+  const res = await fetch(`/api/su/entries/${suId}/flagged`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flagged }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || res.statusText)
+  }
+}
+
 export async function provisionFromPly(): Promise<{
   created: object[]
   skipped: { su_id?: string; pgram?: number; reason: string }[]
