@@ -76,11 +76,14 @@ def usdz_matches(usdz_dir: Path, su_ids: list[str]) -> dict[str, list[Path]]:
     return matches
 
 
-def get_to_be_snipped(api_url: str) -> list[str]:
+def get_to_be_snipped(api_url: str, include_flagged: bool = False) -> list[str]:
     """Return su_ids for 'To Be Snipped' cards that are ready to extract.
 
     A card is included only when its ``ready`` flag is true (server-computed:
     both top & bottom pgrams are processed and a matching LiDAR scan exists).
+    Red-flagged cards are excluded by default -- they've been marked as
+    problematic (e.g. unclear LiDAR, can't figure out where to snip), so an
+    operator shouldn't be handed them. Pass ``include_flagged=True`` to keep them.
     """
     try:
         with urlopen(api_url, timeout=20) as resp:
@@ -94,7 +97,9 @@ def get_to_be_snipped(api_url: str) -> list[str]:
     return [
         r["su_id"]
         for r in rows
-        if r.get("stage") == TARGET_STAGE and r.get("ready")
+        if r.get("stage") == TARGET_STAGE
+        and r.get("ready")
+        and (include_flagged or not r.get("flagged"))
     ]
 
 
@@ -122,7 +127,18 @@ def main() -> int:
         help=(
             "How much of the not-yet-copied ready SUs to copy this run: "
             "'first-half' copies 50%% now and leaves the rest for the next run, "
-            "'all' copies everything remaining. Default: all."
+            "'all' copies everything remaining. Default: all. "
+            "Overridden by --percent if given."
+        ),
+    )
+    parser.add_argument(
+        "--percent",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Copy the first N%% of the not-yet-copied ready SUs this run "
+            "(1-100), leaving the rest for a later run. Overrides --portion."
         ),
     )
     parser.add_argument(
@@ -159,6 +175,11 @@ def main() -> int:
         help="Clear the ledger before this run (start tracking copied SUs from scratch).",
     )
     parser.add_argument(
+        "--include-flagged",
+        action="store_true",
+        help="Also copy red-flagged cards (excluded by default as problematic).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be copied without copying.",
@@ -171,7 +192,7 @@ def main() -> int:
 
     dest_root = Path(args.dest) / DEST_SUBFOLDER
 
-    all_su_ids = get_to_be_snipped(args.api_url)
+    all_su_ids = get_to_be_snipped(args.api_url, include_flagged=args.include_flagged)
     if not all_su_ids:
         print("No ready-to-extract SUs are in the 'To Be Snipped' stage. Nothing to copy.")
         return 0
@@ -189,16 +210,25 @@ def main() -> int:
     # Copy a portion of the not-yet-copied SUs. 'first-half' takes 50% now and
     # leaves the rest for the next run (nothing is reserved for another machine);
     # 'all' copies everything remaining.
-    mid = (len(candidates) + 1) // 2  # first-half gets the larger slice on odd counts
-    if args.portion == "first-half":
-        su_ids, remainder = candidates[:mid], candidates[mid:]
-    elif args.portion == "second-half":
-        su_ids, remainder = candidates[mid:], candidates[:mid]
-    else:  # all
-        su_ids, remainder = candidates, []
+    if args.percent is not None:
+        if not 1 <= args.percent <= 100:
+            raise SystemExit("ERROR: --percent must be between 1 and 100.")
+        # ceil so e.g. 70% of a small set still copies at least the rounded-up share
+        k = -(-len(candidates) * args.percent // 100)
+        su_ids, remainder = candidates[:k], candidates[k:]
+        portion_label = f"{args.percent}%"
+    else:
+        mid = (len(candidates) + 1) // 2  # first-half gets the larger slice on odd counts
+        if args.portion == "first-half":
+            su_ids, remainder = candidates[:mid], candidates[mid:]
+        elif args.portion == "second-half":
+            su_ids, remainder = candidates[mid:], candidates[:mid]
+        else:  # all
+            su_ids, remainder = candidates, []
+        portion_label = args.portion
 
     print(f"{len(all_su_ids)} ready-to-extract SU(s) in 'To Be Snipped'; "
-          f"{len(candidates)} not yet copied; copying portion='{args.portion}' ({len(su_ids)}).")
+          f"{len(candidates)} not yet copied; copying portion='{portion_label}' ({len(su_ids)}).")
     if skipped_prev:
         print(f"  ({len(skipped_prev)} already copied in past runs, skipped)")
     if remainder:
