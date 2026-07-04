@@ -1,166 +1,229 @@
-# TARP Lab Dashboard (`tarp-lab`)
+# TARP Lab Dashboard
 
-Localhost kanban dashboard built for the **Tharros Archaeological Research Project (TARP)** — and adaptable to any active archaeological excavation. Tracks photogrammetry (Pgram) jobs through the full processing pipeline and Stratigraphic Unit (SU) volume generation processes. Dark-mode UI, Google Sheets sync.
+Localhost kanban dashboard for the **[Tharros Archaeological Research Project (TARP)](https://air.ht.lu.se/s/tharros/page/home)**. Tracks photogrammetry jobs through the full processing pipeline and SU volume production. Syncs with Google Sheets so the Field and Lab machines share a single source of truth. Dark-mode UI, built for Windows (MSI lab machine) and Mac (dev).
 
-See also: [`tarp-field` repo](https://github.com/infinityp913/tarp-field) (separate) — light-mode Field website for archaeologists.
+See also: [`tarp-field`](https://github.com/infinityp913/tarp-field) — light-mode Field website for archaeologists on the site.
 
-## Tabs
+---
 
-- **Model Production**: Kanban board for `Pgram_Job_###` folders. Moving a card physically moves the folder on disk. Buttons launch Metashape, CloudCompare, and QGIS.
-- **SU Volumes**: Tracks stratigraphic units through the CloudComPy snip pipeline → volume OBJ → SU sheet → AIR upload. Cards move through: Not Started → To Be Pre-Snipped → To Be Snipped → To Be Post-Snipped → Volume Created → SU Sheet Created → Uploaded to AIR. Gutter buttons launch the CloudComPy scripts (pre-snip, post-snip, create SU sheet); the operator manually crops bins in CloudCompare between pre-snip and post-snip. SU cards have inline Top/Bottom Pgram number fields that save on blur.
+## Dashboard
 
-## Google Sheets schema
+**Model Production** — kanban board for `Pgram_Job_###` folders. Moving a card physically moves the folder on disk. Column buttons launch Metashape alignment and overnight scripts per job.
 
-### Pgram Jobs (10 columns A–J)
-`Pgram Number` · `Trench` · `SUs Open` · `SUs Closed` · `Photos—No Alignment` · `Alignment+Manual Check` · `PLY Created (Overnight completed)` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)`
+![Model Production kanban showing Pgram jobs across all pipeline stages](docs/screenshots/model_production.png)
 
-> Pgram Number is stored as an **integer** (e.g. `696`, not `Pgram_Job_696`).
+**SU Volumes** — tracks each Stratigraphic Unit through the CloudComPy snip pipeline to final volume OBJ and SU sheet. Buttons on each card run the pre-snip, auto-snip, and post-snip scripts directly from the browser.
 
-### SU Tracking (10 columns A–J)
-`SU ID` · `Top Pgram` · `Bottom Pgram` · `Volume Stage` · `Volume Created` · `SU Sheet Created` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)` · `Snip Method`
+![SU Volumes kanban showing SUs in pre-snip, snip, post-snip, and volume created stages](docs/screenshots/su_volumes.png)
 
-- `Volume Stage` (col D) holds the raw stage string. It takes precedence over the checkbox-derived stage so the pre-snip stages (`to_be_pre_snipped`, `to_be_snipped`, `to_be_post_snipped`) are preserved across syncs. Old rows without this column fall back to checkbox logic.
-- `Snip Method` (col J) is set to `"auto"` when auto-snip advanced the card, empty otherwise. Controls whether the debug image button is shown on the card.
+---
 
-### Staging tabs
-`full_sync` writes to `Pgram Jobs_Staging` and `SU Tracking_Staging` first, then does a single `batchUpdate copyPaste` to the live tabs. This minimises the window where live data is empty. A random 0–3 s jitter at sync start reduces the chance of Lab + Field sync calls colliding.
+## Full Pipeline
+
+![TARP processing pipeline: raw photos through photogrammetry and volume production to PLY models, 3D volume OBJ meshes, and SU Sheet PDFs](docs/screenshots/pipeline_diagram.png)
+
+---
+
+## Photogrammetry Pipeline
+
+Each Pgram job moves left-to-right through five physical stage folders on disk. Moving a card on the dashboard moves the actual folder — no separate file management step.
+
+```
+To Be Processed → To Be Aligned → To Overnight → Processed → Uploaded to AIR
+```
+
+### Full pipeline: photos to PLY
+
+1. **Import photos** into Metashape — create a new `Pgram_Job_###_SU####` folder in `To Be Processed / Trench NNNNN /`.
+2. **Add GCPs** — load the season GCP CSV in Metashape and mark targets.
+3. **Run Alignment** — click the **Align →** button on the card. The dashboard calls the headless alignment script (`TARP 2026 Alignment Script - Headless.py`) via Metashape's `-r` flag and moves the card to `To Be Aligned`.
+
+   > The alignment script refuses to run until `gcp_csv` is set in `config.yaml` — a guard against accidentally aligning without ground control.
+
+4. **Manual alignment check** — open the project in Metashape and verify the sparse cloud. Fix any misaligned cameras before the overnight run.
+5. **Move to overnight** — drag the card to `To Overnight` (the dashboard shows a confirmation dialog: _"Did the alignment script run successfully?"_).
+6. **Run Overnight** — click the **Overnight →** button. The script runs dense reconstruction, builds the mesh, and exports PLY + orthophoto + DEM to `overnight_output_assets_root`. Card moves to `Processed`.
+
+   > The overnight button is per-column, not per-card — it runs all jobs in `To Overnight` sequentially. Typically triggered at end of day so machines run overnight unattended.
+
+7. **Upload to AIR** — once PLY is confirmed in the output folder, drag the card to `Uploaded to AIR`. The Google Sheets row is updated automatically.
+
+### Running only alignment (no overnight)
+
+Click **Align →** on any card in `To Be Processed`. The script runs for that single job only. The button is disabled if `alignment` or `gcp_csv` is not set in `config.yaml`.
+
+### Running only overnight
+
+Click **Overnight →** at the top of the `To Overnight` column. All jobs in that column run sequentially. Progress is streamed live to the dashboard while the script runs.
+
+---
+
+## Volume Model Production
+
+SU volume production starts once a Pgram job reaches `Processed` and PLY files are available in the output folder. Each SU moves through its own pipeline on the **SU Volumes** tab.
+
+```
+Not Started → To Be Pre-Snipped → To Be Snipped → To Be Post-Snipped → Volume Created → SU Sheet Created → Uploaded to AIR
+```
+
+### Linked repositories
+
+The volume pipeline runs scripts from two external repos — configure their paths in `config.yaml`:
+
+- **[cloudcomparescript](https://github.com/infinityp913/cloudcomparescript)** — pre-snip, auto-snip, and post-snip scripts using [CloudComPy](https://github.com/CloudCompare/CloudComPy). Computes distances between top/bottom PLY pairs, runs Poisson surface reconstruction, and outputs volume OBJ meshes.
+- **[AutomateSuSheetCreation](https://github.com/infinityp913/AutomateSuSheetCreation)** — QGIS-based script that reads the volume OBJ and writes a georeferenced SU sheet PDF ready for upload to the AIR repository.
+
+### Step 1: Pre-Snip
+
+Set the **Top Pgram** and **Bottom Pgram** fields on the SU card (the two Pgram job numbers whose PLY files bound this SU). Then click **Pre-Snip** on the card.
+
+The pre-snip script:
+- Loads the top and bottom PLY meshes
+- Samples both to point clouds
+- Computes bidirectional C2C distances
+- Saves distance-coloured BIN files in `Data/Pgram_Job_###/`
+
+The card advances to `To Be Snipped` automatically.
+
+### Step 2: Snipping
+
+At this stage a human crops the point clouds in CloudCompare to isolate just the SU area and remove noise.
+
+**Auto-Snip (iPhone LiDAR — recommended):** If the field team painted the SU with yellow paint and captured a LiDAR scan with the iPhone, click **Auto-Snip**. The script reads a `.usdz` annotation file, projects the LiDAR scan onto the top-down PLY render, and uses a rolling-ball algorithm to extract the SU boundary polygon. No CloudCompare interaction required.
+
+**Manual Snip:** Click **Open in CC** to open the pre-snip BINs in CloudCompare. Crop the top and bottom clouds to the SU boundary, then save both together as `<su>.bin` in `Data/SU<su>/`. Once saved, drag the card to `To Be Post-Snipped`.
+
+> The card cannot be dragged from `To Be Snipped` to `To Be Post-Snipped` without confirmation — the dialog prompts you to verify that both cropped clouds have been saved before post-snip runs.
+
+### Step 3: Post-Snip
+
+Click **Post-Snip** on the card. The post-snip script:
+- Loads the cropped top and bottom clouds from `Data/SU<su>/`
+- Merges them and runs Poisson surface reconstruction
+- Calculates 3D volume (cubic centimetres) and 2.5D projected volume
+- Writes final OBJ meshes to `Volumetrics_YYYY/Trench NNNNN/SU<su>/`
+- Appends results to `volume_measures.txt`
+
+The card advances to `Volume Created`.
+
+### Step 4: SU Sheet
+
+Click **Create SU Sheet** on the card. The script uses QGIS to:
+- Load the volume OBJ in the season's GIS project
+- Compute the SU footprint polygon
+- Export a georeferenced PDF SU sheet
+
+The card advances to `SU Sheet Created`, then you upload the sheet to the AIR repository and drag the card to `Uploaded to AIR`.
+
+---
 
 ## Setup
+
+Full first-time instructions are in [`LAB_HOWTO.md`](LAB_HOWTO.md). Quick reference:
 
 ### 1. `config.yaml`
 
 ```yaml
 base_path: "C:\\Users\\Photogrammetry"   # Windows stage-folder root
-dev_base_path: "/Users/you/tarp-test"     # Mac dev path (auto-used on non-Windows)
+dev_base_path: "/Users/you/tarp-test"     # Mac dev path (used when not on Windows)
 
-stage_folders:
-  to_be_processed: To Be Processed
-  to_be_aligned:   To Be Aligned
-  to_overnight:    To Overnight
-  processed:       Processed
-  uploaded_air:    Uploaded to AIR
-
-# Current season — update both at the start of each season.
-season_year: 2026          # drives the "Season YYYY" label in the header
-current_year_trenches:     # inclusive trench range scanned/run for the season
-  min: 20000               # 2026 trenches run 20000–23000
+season_year: 2026
+current_year_trenches:
+  min: 20000
   max: 23000
 
-app_paths:
-  metashape:    ""   # full path or leave blank
-  cloudcompare: ""
-  qgis:        ""   # auto-discovered on Windows
-
 scripts:
-  alignment: ""
-  overnight: ""
-  gcp_csv: ""
-  overnight_output_assets_root: ""
-  # Volume (CloudComPy) pipeline — enables the Pre-Snip / Auto-Snip / Post-Snip buttons.
-  # volume_script_dir must contain a Data/ subfolder and example.json.
-  # cloudcompy_python: run `conda activate CloudComPy310 && where python` to find it.
-  pre_snip: ""
-  auto_snip: ""
-  post_snip: ""
-  create_su_sheet: ""
-  volume_script_dir: ""
-  cloudcompy_python: ""
+  alignment: "C:\\...\\TARP 2026 Alignment Script - Headless.py"
+  overnight:  "C:\\...\\TARP 2026 Overnight Script - Headless.py"
+  gcp_csv:    "C:\\...\\GCPs 2026 ... EPSG32632.csv"
+  overnight_output_assets_root: "C:\\Users\\Photogrammetry\\GIS_2026"
+
+  pre_snip:         "C:\\...\\cloudcomparescript\\pre_snip_script.py"
+  auto_snip:        "C:\\...\\cloudcomparescript\\auto_snip_script.py"
+  post_snip:        "C:\\...\\cloudcomparescript\\post_snip_script.py"
+  create_su_sheet:  "C:\\...\\AutomateSuSheetCreation\\generate_su_sheets.py"
+  volume_script_dir: "C:\\...\\cloudcomparescript"
+  cloudcompy_python: "C:\\...\\CloudComPy\\venv312\\Scripts\\python.exe"
+  cloudcompy_root:   "C:\\...\\CloudComPy\\CloudComPy312"
+  create_su_sheet_dir: "C:\\...\\AutomateSuSheetCreation"
+  qgis_launcher:    "C:\\Program Files\\QGIS 3.40.8\\bin\\python-qgis-ltr.bat"
 
 gsheets_spreadsheet_id: ""   # from the spreadsheet URL
-host: 127.0.0.1
-port: 8000
 ```
 
-### 2. Google Sheets (optional but recommended)
+### 2. Google Sheets
 
 1. Enable **Google Sheets API** in Google Cloud Console.
-2. Create an **OAuth 2.0 Desktop App** credential → download `credentials.json` → place in repo root.
-3. Run auth flow once:
-   ```bash
-   python3 -c "from backend.services.gsheets import run_auth_flow; run_auth_flow()"
-   ```
-4. Token saved to `%APPDATA%\tarp-dashboard\token.json` (Windows) or `~/AppData/Roaming/tarp-dashboard/token.json`.
+2. Create an **OAuth 2.0 Desktop App** credential, download `credentials.json`, place it in the repo root.
+3. Run the auth flow once: `python3 -c "from backend.services.gsheets import run_auth_flow; run_auth_flow()"`
 
 ### 3. Run
 
 ```bash
-# Install dependencies (first time)
+# First time — install deps and build the frontend bundle
 pip install -r requirements.txt
-
-# Build the frontend (required — backend/static/ is gitignored, not committed)
 cd frontend && npm install && npm run build && cd ..
 
-# Start server (opens browser automatically)
+# Start (opens browser at http://127.0.0.1:8000)
 python3 -m backend.main
-
-# Open browser at http://127.0.0.1:8000
 ```
 
-> On Windows, `setup.bat` does the pip install + frontend build for you. It wipes
-> `backend/static/` before building and verifies `index.html` was produced, so an
-> interrupted/partial build can't silently leave you with a blank page.
-> Re-run the build (`cd frontend && npm run build`) after pulling frontend changes.
-> **Blank page?** The bundle is missing or half-built — rebuild (or re-run `setup.bat`).
+On Windows, `setup.bat` runs the pip install and frontend build. `start.bat` starts the server.
+
+---
 
 ## Development
 
 ```bash
-# Backend with hot-reload (reads dev_base_path from config.yaml, handles OAuth)
+# Backend with hot-reload
 python3 -m backend.main --dev
 
-# Frontend dev server (hot-reload, proxies API to :8000)
+# Frontend dev server (proxies /api to :8000)
 cd frontend && npm run dev
-
-# Rebuild frontend bundle (served by FastAPI in production)
-cd frontend && npm run build
 
 # Tests
 python3 -m pytest tests/ -v
 ```
 
-> **Windows (PowerShell):**
-> - Use `python` instead of `python3` (e.g. `python -m backend.main --dev`). On Windows `python3` may resolve to another interpreter (e.g. QGIS's bundled Python) that lacks the backend dependencies.
-> - PowerShell doesn't support `&&`. Use `;` instead (e.g. `cd frontend; npm run dev`).
+> **Windows PowerShell:** use `python` instead of `python3`. Use `;` instead of `&&`.
 
-## Folder naming
+---
 
-Job folders must match `Pgram_Job_###` or `Pgram_Job_###_anything`:
+## Stage folder structure
 
 ```
-Pgram_Job_696
-Pgram_Job_697_SU16014-16015
-Pgram_Job_698_SU016_MOVED_TO_MSI   ← scanned correctly; _MOVED_TO_MSI stripped before parse
+C:\Users\Photogrammetry\
+├── To Be Processed\
+│   └── Trench 20000\
+│       └── Pgram_Job_793_SU20022-20023\
+├── To Be Aligned\
+├── To Overnight\
+├── Processed\
+└── Uploaded to AIR\
 ```
 
-## Seasonal trench range
+Job folders must match `Pgram_Job_###` or `Pgram_Job_###_anything`. The dashboard shows a warning banner for misnamed folders and offers a one-click fix via the **Fix SU names** button.
 
-Job scanning, the run buttons, and the misnamed-folder warning only operate on trench
-subfolders within `current_year_trenches` (set in `config.yaml`). For 2026 the trenches are
-`20000–23000`. Folders at the stage-root level (e.g. `__pycache__`, `Pre-2026`) and
-out-of-season trenches (e.g. `Trench 19000`) are ignored entirely — they won't show jobs,
-won't be run, and won't be flagged as misnamed.
+Only folders inside a `Trench NNNNN` subfolder whose number falls in `current_year_trenches` are shown. Out-of-season trenches and loose folders at the stage root are ignored.
 
-**At the start of each new season, update `season_year` and `current_year_trenches`.** The
-header shows *"Season YYYY"* (from `season_year`) next to a *"Trenches X–Y"* badge (from
-`current_year_trenches`). The range is inclusive on both ends; only `Trench NNNNN` folders
-are matched.
+---
 
-## Guarded stage transitions
+## Google Sheets schema
 
-| From | To | Dialog |
-|---|---|---|
-| To Be Aligned | To Overnight | Did the alignment script run successfully? |
-| To Overnight | Processed | Did the overnight script run succeed? |
-| To Be Pre-Snipped | To Be Snipped | Did not run pre-snip — use the Pre-Snip button. |
-| To Be Snipped | To Be Post-Snipped | Confirm manual snip: open this SU's pre-snip bins in CloudCompare (Open in CC ↗), crop top & bottom, and save **both** cropped clouds together as `<su>.bin` in `Data/SU<su>/` before running Post-Snip. |
-| To Be Post-Snipped | Volume Created | Did not run post-snip — use the Post-Snip button. |
+### Pgram Jobs (columns A–J)
+`Pgram Number` · `Trench` · `SUs Open` · `SUs Closed` · `Photos—No Alignment` · `Alignment+Manual Check` · `PLY Created` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)`
 
-The SU snip transitions gate against accidental drag-and-drop. Cards can still be moved backward freely. The "→" button on each card advances it one step and also triggers the confirmation dialog where required.
+### SU Tracking (columns A–J)
+`SU ID` · `Top Pgram` · `Bottom Pgram` · `Volume Stage` · `Volume Created` · `SU Sheet Created` · `Uploaded to AIR` · `Notes` · `Last Updated (CET)` · `Snip Method`
 
-## Timestamps
+Syncs use staging tabs (`Pgram Jobs_Staging`, `SU Tracking_Staging`) with a single `batchUpdate copyPaste` to the live tabs, minimising the window where live data is empty. A random 0–3 s jitter reduces Lab + Field sync collisions.
 
-All timestamps use `Europe/Rome` via Python `zoneinfo` — correctly handles both CET (UTC+1, winter) and CEST (UTC+2, summer) automatically.
+---
 
-## User guides
-- `LAB_HOWTO.md` — for lab technicians
-- `FIELD_HOWTO.md` — in the `tarp-field` repo
+## Related repositories
+
+| Repo | Purpose |
+|---|---|
+| [`tarp-field`](https://github.com/infinityp913/tarp-field) | Light-mode Field website for archaeologists on site |
+| [`cloudcomparescript`](https://github.com/infinityp913/cloudcomparescript) | CloudComPy scripts for pre-snip, auto-snip, post-snip, and volume calculation |
+| [`AutomateSuSheetCreation`](https://github.com/infinityp913/AutomateSuSheetCreation) | QGIS script for generating georeferenced SU sheet PDFs |
