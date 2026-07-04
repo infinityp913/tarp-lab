@@ -217,18 +217,21 @@ def _exists(path: str) -> bool:
         return False
 
 
-def _write_input_json(cards: list[dict], script_dir: str) -> int:
+def _write_input_json(cards: list[dict], script_dir: str, dedupe: bool = True) -> int:
     """Write input.json for the volume scripts from the given SU cards.
 
     Each card must have a digit top_pgram and bot_pgram; cards missing either
-    are skipped (logged). Returns the number of pairs written.
+    are skipped (logged). Returns the number of entries written.
 
-    Pairs are de-duplicated by (top, bottom): the snip scripts key their output
-    on the top pgram, so multiple SU cards sharing the same pgram pair (common
-    with SU ranges) would otherwise re-run the same expensive cloud-to-cloud
-    computation and overwrite the same output — roughly doubling runtime for no
-    gain. Only the compute input is de-duped; card advancement in _worker still
+    When `dedupe` is True, pairs are de-duplicated by (top, bottom): SU cards
+    sharing a pgram pair collapse to the first (kept) SU, so the same expensive
+    cloud-to-cloud computation runs once. Card advancement in _worker still
     iterates every card, so all SUs advance regardless.
+
+    When `dedupe` is False (pre_snip), every SU is written as its own entry so the
+    script produces a Data/SU<su>/ folder for each. The script caches the per-pair
+    distance computation, so a shared pgram pair is still computed only once — no
+    recompute, but every SU gets its own folder.
     """
     import json
 
@@ -245,16 +248,23 @@ def _write_input_json(cards: list[dict], script_dir: str) -> int:
         key = (top, bot)
         if key in seen:
             duplicates.append(f"{su or '?'}->{seen[key] or '?'}")
-            continue
-        seen[key] = su
+            if dedupe:
+                continue
+        else:
+            seen[key] = su
         pairs.append({"top": top, "bottom": bot, "su": su})
 
     dest = Path(script_dir) / "input.json"
     dest.write_text(json.dumps(pairs, indent=2))
     if duplicates:
-        _log(f"  collapsed {len(duplicates)} duplicate pgram pair(s) "
-             f"(SU->kept SU): {', '.join(duplicates)}")
-    _log(f"  wrote {len(pairs)} unique pair(s) to {dest}")
+        if dedupe:
+            _log(f"  collapsed {len(duplicates)} duplicate pgram pair(s) "
+                 f"(SU->kept SU): {', '.join(duplicates)}")
+        else:
+            _log(f"  {len(duplicates)} SU(s) share a pgram pair with another "
+                 f"(SU->shares with): {', '.join(duplicates)} — each gets its own "
+                 f"folder; the shared pair is computed once")
+    _log(f"  wrote {len(pairs)} entr{'y' if len(pairs) == 1 else 'ies'} to {dest}")
     return len(pairs)
 
 
@@ -295,7 +305,12 @@ def _prepare_run(kind: str, script: str, cards: list[dict], cfg) -> tuple[list[s
     if kind == "create_su_sheet":
         count = _write_su_sheets_input(cards, cfg.create_su_sheet_dir, cfg.season_year)
         return [cfg.qgis_launcher, script], cfg.create_su_sheet_dir, None, count
-    count = _write_input_json(cards, cfg.volume_script_dir)
+    # The snip scripts run one entry per SU (dedupe=False) so every SU gets its own
+    # output: pre_snip caches each pgram pair's distance computation, so a shared pair
+    # is computed once but written into every SU's own Data/SU<su>/ folder; post_snip
+    # reads each SU's own snip bin, so its volumes are genuinely per-SU (SUs with no bin
+    # on disk are skipped by the script).
+    count = _write_input_json(cards, cfg.volume_script_dir, dedupe=False)
     env = _cloudcompy_env(cfg)
     if env is not None and cfg.overnight_output_assets_root:
         # Tell pre_snip/auto_snip where the overnight-exported PLY meshes live, instead
@@ -428,6 +443,28 @@ def _cloudcompy_env(cfg) -> Optional[dict]:
     return env
 
 
+def _run_capture(cmd: list[str], cwd: str, env: Optional[dict], cfg, kind: str) -> tuple[int, str, str]:
+    """Launch a volume script, wait for it, and return (returncode, stdout, stderr).
+
+    Output is captured to temp FILES, not pipes. CloudCompare's Qt JsonRPC plugin can
+    leave a grandchild process alive that inherits our stdout/stderr pipe handles;
+    proc.communicate() then blocks forever waiting for pipe-EOF even after the script
+    itself exited and wrote all its output — wedging the run in 'active' on success.
+    Writing to files lets proc.wait() return as soon as the script process exits,
+    regardless of any lingering grandchild. Output is decoded with errors='replace'.
+    The run lock is written once the pid is known.
+    """
+    import tempfile
+
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(cmd, stdout=out, stderr=err, cwd=cwd, env=env)
+        _write_lock(cfg, kind, proc.pid)
+        proc.wait()
+        out.seek(0)
+        err.seek(0)
+        return proc.returncode, out.read().decode("utf-8", "replace"), err.read().decode("utf-8", "replace")
+
+
 def _worker(kind: str, cards: list[dict]) -> None:
     from_stage, to_stage = _STEPS[kind]
     _log(f"started '{kind}': {len(cards)} card(s) in '{from_stage}'")
@@ -451,22 +488,19 @@ def _worker(kind: str, cards: list[dict]) -> None:
 
     _log(f"launching: {' '.join(cmd)} (cwd: {cwd})")
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, cwd=cwd, env=env)
+        returncode, stdout, stderr = _run_capture(cmd, cwd, env, cfg, kind)
     except Exception as e:
         _finish(False, str(e), 0)
         return
-    _write_lock(cfg, kind, proc.pid)
-    stdout, stderr = proc.communicate()
 
-    # Persist the script's own stdout/stderr to the log. subprocess output is piped
-    # (not inherited), so without this the per-SU detail lines — e.g. the top-mesh
-    # distance-trim threshold used for tuning — are lost on a successful run.
+    # Persist the script's own stdout/stderr to the log — captured to temp files (see
+    # _run_capture), so without this the per-SU detail lines (trim thresholds, warnings)
+    # are lost on a successful run.
     _log_script_output(kind, stdout, stderr)
 
-    if proc.returncode != 0:
+    if returncode != 0:
         detail = (stderr or stdout or "").strip()
-        _finish(False, detail[-800:] if detail else f"Script exited with code {proc.returncode}", 0)
+        _finish(False, detail[-800:] if detail else f"Script exited with code {returncode}", 0)
         return
 
     # Script succeeded — advance cards from from_stage → to_stage in Sheets.
@@ -625,18 +659,15 @@ def _chain_worker(
 
         _log(f"chain step {step_num} ({kind}): launching {' '.join(cmd)} on {len(cards)} card(s)")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, cwd=cwd, env=env)
+            returncode, stdout, stderr = _run_capture(cmd, cwd, env, cfg, kind)
         except Exception as e:
             _finish(False, f"Step {step_num} ({kind}) failed to launch: {e}", total_advanced)
             return
-        _write_lock(cfg, kind, proc.pid)
-        stdout, stderr = proc.communicate()
         _log_script_output(kind, stdout, stderr)
 
-        if proc.returncode != 0:
+        if returncode != 0:
             detail = (stderr or stdout or "").strip()
-            _finish(False, f"Step {step_num} ({kind}): " + (detail[-800:] if detail else f"exit code {proc.returncode}"), total_advanced)
+            _finish(False, f"Step {step_num} ({kind}): " + (detail[-800:] if detail else f"exit code {returncode}"), total_advanced)
             return
 
         for card in cards:
