@@ -10,16 +10,19 @@
 
 <table>
 <tr>
+<th align="center">Raw Field Photo</th>
 <th align="center">3D Volume Model</th>
 <th align="center">SU Sheet PDF</th>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/su_volume_model.png" alt="3D volume OBJ mesh of a Stratigraphic Unit" width="420"/></td>
-<td align="center"><img src="docs/screenshots/su_sheet_example.png" alt="Georeferenced SU sheet PDF with orthophoto and DEM" width="420"/></td>
+<td align="center"><img src="docs/screenshots/field_photo.png" alt="Active excavation trench at Tharros" width="270"/></td>
+<td align="center"><img src="docs/screenshots/su_volume_model.png" alt="SU boundary extraction stages: centroid, alpha-shape, rolling-ball hull, final result" width="270"/></td>
+<td align="center"><img src="docs/screenshots/su_sheet_example.png" alt="Georeferenced SU sheet PDF with orthophoto and DEM" width="270"/></td>
 </tr>
 <tr>
-<td align="center">Poisson-reconstructed OBJ mesh per SU<br>with 3D and 2.5D volume measurements</td>
-<td align="center">Georeferenced PDF with orthophoto, DEM,<br>and site context map for the AIR repository</td>
+<td align="center">Drone + GCP capture<br>on site at Tharros</td>
+<td align="center">Poisson-reconstructed OBJ mesh<br>with 3D and 2.5D volumes</td>
+<td align="center">Georeferenced PDF with orthophoto,<br>DEM, and site context map</td>
 </tr>
 </table>
 
