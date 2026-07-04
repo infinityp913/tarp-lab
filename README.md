@@ -1,8 +1,39 @@
 # TARP Lab Dashboard
 
-Localhost kanban dashboard for the **[Tharros Archaeological Research Project (TARP)](https://air.ht.lu.se/s/tharros/page/home)**. Tracks photogrammetry jobs through the full processing pipeline and SU volume production. Syncs with Google Sheets so the Field and Lab machines share a single source of truth. Dark-mode UI, built for Windows (MSI lab machine) and Mac (dev).
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-See also: [`tarp-field`](https://github.com/infinityp913/tarp-field) — light-mode Field website for archaeologists on the site.
+**Drone photos in. Georeferenced SU sheets out. Every step tracked in your browser.**
+
+<table>
+<tr>
+<th align="center">3D Volume Model</th>
+<th align="center">SU Sheet PDF</th>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/su_volume_model.png" alt="3D volume OBJ mesh of a Stratigraphic Unit" width="420"/></td>
+<td align="center"><img src="docs/screenshots/su_sheet_example.png" alt="Georeferenced SU sheet PDF with orthophoto and DEM" width="420"/></td>
+</tr>
+<tr>
+<td align="center">Poisson-reconstructed OBJ mesh per SU<br>with 3D and 2.5D volume measurements</td>
+<td align="center">Georeferenced PDF with orthophoto, DEM,<br>and site context map for the AIR repository</td>
+</tr>
+</table>
+
+Localhost kanban dashboard for the **[Tharros Archaeological Research Project (TARP)](https://air.ht.lu.se/s/tharros/page/home)**. Tracks photogrammetry jobs and SU volume production through the full pipeline. Syncs with Google Sheets so the Field and Lab machines share a single source of truth.
+
+See also: [`tarp-field`](https://github.com/infinityp913/tarp-field) — Field website for archaeologists on site. Works in tandem with `tarp-lab` to keep the Field and Lab in sync.
+
+---
+
+## From raw photos to publication
+
+The dashboard drives two pipelines end to end — from drone capture to a publication-ready SU sheet:
+
+![TARP processing pipeline: raw photos through photogrammetry and volume production to PLY models, 3D volume OBJ meshes, and SU Sheet PDFs](docs/screenshots/pipeline_diagram.png)
 
 ---
 
@@ -15,12 +46,6 @@ See also: [`tarp-field`](https://github.com/infinityp913/tarp-field) — light-m
 **SU Volumes** — tracks each Stratigraphic Unit through the CloudComPy snip pipeline to final volume OBJ and SU sheet. Buttons on each card run the pre-snip, auto-snip, and post-snip scripts directly from the browser.
 
 ![SU Volumes kanban showing SUs in pre-snip, snip, post-snip, and volume created stages](docs/screenshots/su_volumes.png)
-
----
-
-## Full Pipeline
-
-![TARP processing pipeline: raw photos through photogrammetry and volume production to PLY models, 3D volume OBJ meshes, and SU Sheet PDFs](docs/screenshots/pipeline_diagram.png)
 
 ---
 
@@ -71,7 +96,7 @@ Not Started → To Be Pre-Snipped → To Be Snipped → To Be Post-Snipped → V
 The volume pipeline runs scripts from two external repos — configure their paths in `config.yaml`:
 
 - **[cloudcomparescript](https://github.com/infinityp913/cloudcomparescript)** — pre-snip, auto-snip, and post-snip scripts using [CloudComPy](https://github.com/CloudCompare/CloudComPy). Computes distances between top/bottom PLY pairs, runs Poisson surface reconstruction, and outputs volume OBJ meshes.
-- **[AutomateSuSheetCreation](https://github.com/infinityp913/AutomateSuSheetCreation)** — QGIS-based script that reads the volume OBJ and writes a georeferenced SU sheet PDF ready for upload to the AIR repository.
+- **[su-sheet-builder](https://github.com/sid0913/su-sheet-builder)** — QGIS-based script that reads the volume OBJ and writes a georeferenced SU sheet PDF ready for upload to the AIR repository.
 
 ### Step 1: Pre-Snip
 
@@ -141,11 +166,11 @@ scripts:
   pre_snip:         "C:\\...\\cloudcomparescript\\pre_snip_script.py"
   auto_snip:        "C:\\...\\cloudcomparescript\\auto_snip_script.py"
   post_snip:        "C:\\...\\cloudcomparescript\\post_snip_script.py"
-  create_su_sheet:  "C:\\...\\AutomateSuSheetCreation\\generate_su_sheets.py"
+  create_su_sheet:  "C:\\...\\su-sheet-builder\\generate_su_sheets.py"
   volume_script_dir: "C:\\...\\cloudcomparescript"
   cloudcompy_python: "C:\\...\\CloudComPy\\venv312\\Scripts\\python.exe"
   cloudcompy_root:   "C:\\...\\CloudComPy\\CloudComPy312"
-  create_su_sheet_dir: "C:\\...\\AutomateSuSheetCreation"
+  create_su_sheet_dir: "C:\\...\\su-sheet-builder"
   qgis_launcher:    "C:\\Program Files\\QGIS 3.40.8\\bin\\python-qgis-ltr.bat"
 
 gsheets_spreadsheet_id: ""   # from the spreadsheet URL
@@ -226,4 +251,4 @@ Syncs use staging tabs (`Pgram Jobs_Staging`, `SU Tracking_Staging`) with a sing
 |---|---|
 | [`tarp-field`](https://github.com/infinityp913/tarp-field) | Light-mode Field website for archaeologists on site |
 | [`cloudcomparescript`](https://github.com/infinityp913/cloudcomparescript) | CloudComPy scripts for pre-snip, auto-snip, post-snip, and volume calculation |
-| [`AutomateSuSheetCreation`](https://github.com/infinityp913/AutomateSuSheetCreation) | QGIS script for generating georeferenced SU sheet PDFs |
+| [`su-sheet-builder`](https://github.com/sid0913/su-sheet-builder) | QGIS script for generating georeferenced SU sheet PDFs |
