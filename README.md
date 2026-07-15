@@ -6,7 +6,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-**Drone photos in. Georeferenced SU sheets out. Every step tracked in your browser.**
+**SU photos in. Georeferenced SU sheets out. Every step tracked in your browser.**
 
 <table>
 <tr>
@@ -26,7 +26,9 @@
 </tr>
 </table>
 
-Localhost kanban dashboard for the **[Tharros Archaeological Research Project (TARP)](https://air.ht.lu.se/s/tharros/page/home)**. Tracks photogrammetry jobs and SU volume production through the full pipeline. Syncs with Google Sheets so the Field and Lab machines share a single source of truth.
+An automated pipeline for photogrammetry and SU volume production, styled as a kanban dashboard to track progress and launch scripts. Designed for archaeological research projects that use drones and photogrammetry to document excavations.
+
+This project was created on site during the 2026 excavation season at Tharros, Sardinia, Italy for [Tharros Archaeological Research Project (TARP)](https://air.ht.lu.se/s/tharros/page/home). It is now maintained as a general-purpose photogrammetry and SU volume production dashboard for archaeological research projects.
 
 See also: [`tarp-field`](https://github.com/infinityp913/tarp-field) — Field website for archaeologists on site. Works in tandem with `tarp-lab` to keep the Field and Lab in sync.
 
